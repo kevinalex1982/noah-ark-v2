@@ -1,0 +1,13 @@
+{
+  "device": "掌纹设备 (掌静脉)",
+  "service": "127.0.0.1:8080",
+  "interface": "106 - 单个用户查询",
+  "query": {
+    "userId": "cjj"
+  },
+  "response": {
+    "code": "200",
+    "response": "106",
+    "userId": "cjj"
+  }
+}

@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>诺亚保管库 - 密码认证</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://api.fontshare.com/v2/css?f[]=satoshi@700,900');
+        
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+        }
+        
+        .gradient-subtle {
+            background: linear-gradient(180deg, #F0F4FF 0%, #E9EEF7 100%);
+        }
+        
+        .input-display {
+            border: 2px solid #DEE2E6;
+            transition: all 0.3s ease;
+            letter-spacing: 12px;
+            font-size: 20px;
+            font-weight: 600;
+        }
+        
+        .input-display:focus {
+            border-color: #1A1A1A;
+            box-shadow: 0 0 0 4px rgba(26, 26, 26, 0.15);
+            outline: none;
+        }
+        
+        .keypad-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            max-width: 360px;
+            margin: 0 auto;
+        }
+        
+        .keypad-btn {
+            aspect-ratio: 1.2;
+            border-radius: 16px;
+            background: white;
+            border: 2px solid #E9ECEF;
+            font-size: 22px;
+            font-weight: 600;
+            color: #1A1A1A;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .keypad-btn:hover {
+            background: #F8F9FA;
+            border-color: #1A1A1A;
+        }
+        
+        .keypad-btn:active {
+            transform: scale(0.95);
+            background: #1A1A1A;
+            color: white;
+        }
+        
+        .keypad-btn.x-key {
+            color: #DC2626;
+            font-weight: 700;
+        }
+        
+        .lock-icon {
+            width: 80px;
+            height: 80px;
+            background: linear-gradient(135deg, #F8F9FA 0%, #E9ECEF 100%);
+            border-radius: 20px;
+            border: 2px solid #DEE2E6;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 25px;
+        }
+        
+        /* 测试按钮样式 */
+        .test-buttons {
+            position: fixed;
+            bottom: 40px;
+            left: 40px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        .btn-test {
+            padding: 10px 20px;
+            background: #3B82F6;
+            border: none;
+            border-radius: 8px;
+            color: white;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-test:hover {
+            background: #2563EB;
+            transform: translateY(-1px);
+        }
+        
+        .btn-test:active {
+            transform: translateY(0);
+        }
+        
+        .btn-test.fail {
+            background: #EF4444;
+        }
+        
+        .btn-test.fail:hover {
+            background: #DC2626;
+        }
+        
+        /* 触摸优化 */
+        * {
+            -webkit-tap-highlight-color: transparent;
+            touch-action: manipulation;
+        }
+    </style>
+</head>
+<body class="gradient-subtle min-h-screen flex flex-col">
+    <!-- 顶部导航区 -->
+    <header class="w-full py-4 px-8 bg-white/50 backdrop-blur-sm border-b border-gray-200">
+        <div class="max-w-5xl mx-auto flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <div class="w-10 h-10 rounded-xl bg-gray-900 flex items-center justify-center">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" 
+                              d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+                    </svg>
+                </div>
+                <h1 class="text-2xl font-black text-gray-900" style="font-family: 'Satoshi', sans-serif;">
+                    诺亚保管库
+                </h1>
+            </div>
+            <div class="text-right">
+                <p class="text-xs text-gray-500">© 2024 诺亚 · 安全可靠</p>
+            </div>
+        </div>
+    </header>
+
+    <!-- 主内容区 -->
+    <main class="flex-1 flex items-center justify-center p-6">
+        <div class="w-full max-w-md">
+            <!-- 主卡片 -->
+            <div class="bg-white rounded-3xl shadow-xl border border-gray-200 p-8 md:p-10">
+                <!-- 锁图标 -->
+                <div class="lock-icon">
+                    <svg class="w-10 h-10 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" 
+                              d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+                    </svg>
+                </div>
+                
+                <!-- 标题 -->
+                <h2 class="text-2xl md:text-3xl font-black text-gray-900 text-center mb-2" 
+                    style="font-family: 'Satoshi', sans-serif;">
+                    密码认证
+                </h2>
+                
+                <!-- 副标题 -->
+                <p class="text-gray-500 text-center text-sm mb-8">
+                    请输入 6 位密码
+                </p>
+                
+                <!-- 输入显示框 -->
+                <div class="mb-6">
+                    <input 
+                        type="password" 
+                        id="passwordDisplay"
+                        class="input-display w-full px-6 py-4 rounded-xl text-gray-900 placeholder-gray-400 text-center"
+                        placeholder="请输入密码"
+                        readonly
+                        maxlength="6"
+                    />
+                </div>
+                
+                <!-- 软键盘 -->
+                <div class="keypad-grid mb-6">
+                    <button class="keypad-btn" onclick="inputChar('1')">1</button>
+                    <button class="keypad-btn" onclick="inputChar('2')">2</button>
+                    <button class="keypad-btn" onclick="inputChar('3')">3</button>
+                    <button class="keypad-btn" onclick="inputChar('4')">4</button>
+                    <button class="keypad-btn" onclick="inputChar('5')">5</button>
+                    <button class="keypad-btn" onclick="inputChar('6')">6</button>
+                    <button class="keypad-btn" onclick="inputChar('7')">7</button>
+                    <button class="keypad-btn" onclick="inputChar('8')">8</button>
+                    <button class="keypad-btn" onclick="inputChar('9')">9</button>
+                    <button class="keypad-btn x-key" onclick="clearPassword()">清空</button>
+                    <button class="keypad-btn" onclick="inputChar('0')">0</button>
+                    <button class="keypad-btn action-key" onclick="deleteChar()">⌫</button>
+                </div>
+                
+                <!-- 确认按钮 -->
+                <button onclick="verifyPassword()" class="btn-primary w-full py-4 rounded-xl text-white font-bold text-lg tracking-wide bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 transition-all">
+                    确 认
+                </button>
+                
+                <!-- 提示信息 -->
+                <p class="text-center text-xs text-gray-400 mt-6">
+                    忘记密码请联系管理员
+                </p>
+            </div>
+        </div>
+    </main>
+
+    <!-- 测试按钮（左下角） -->
+    <div class="test-buttons">
+        <button class="btn-test fail" onclick="showFailure()">
+            模拟失败
+        </button>
+        <button class="btn-test" onclick="showSuccess()">
+            模拟成功
+        </button>
+    </div>
+
+    <!-- 底部状态栏 -->
+    <footer class="w-full py-3 px-8 bg-white/50 backdrop-blur-sm border-t border-gray-200">
+        <div class="max-w-5xl mx-auto flex items-center justify-between text-xs text-gray-500">
+            <div class="flex items-center space-x-4">
+                <span class="flex items-center">
+                    <span class="w-2 h-2 bg-green-500 rounded-full mr-1.5"></span>
+                    系统正常
+                </span>
+                <span class="flex items-center">
+                    <span class="w-2 h-2 bg-blue-500 rounded-full mr-1.5"></span>
+                    设备在线
+                </span>
+            </div>
+            <div id="currentTime"></div>
+        </div>
+    </footer>
+
+    <script>
+        let password = '';
+        const maxLength = 6;
+        
+        function inputChar(char) {
+            if (password.length < maxLength) {
+                password += char;
+                updateDisplay();
+            }
+        }
+        
+        function deleteChar() {
+            password = password.slice(0, -1);
+            updateDisplay();
+        }
+        
+        function clearPassword() {
+            password = '';
+            updateDisplay();
+        }
+        
+        function updateDisplay() {
+            document.getElementById('passwordDisplay').value = password;
+        }
+        
+        // 模拟失败
+        function showFailure() {
+            alert('验证失败：密码错误');
+            clearPassword();
+        }
+        
+        // 模拟成功
+        function showSuccess() {
+            alert('验证成功！即将跳转到下一页...（下一页待设计）');
+            // window.location.href = '下一页.html'; // 待设计
+        }
+        
+        // 验证密码
+        function verifyPassword() {
+            if (password.length !== maxLength) {
+                alert('请输入 6 位密码');
+                return;
+            }
+            // 这里可以添加真实验证逻辑
+            alert('正在验证密码...');
+        }
+        
+        function updateTime() {
+            const now = new Date();
+            const timeStr = now.toLocaleString('zh-CN', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: false
+            });
+            document.getElementById('currentTime').textContent = timeStr;
+        }
+        updateTime();
+        setInterval(updateTime, 1000);
+    </script>
+</body>
+</html>

@@ -1,0 +1,96 @@
+{
+  "name": "noah-ark-electron",
+  "version": "1.0.0",
+  "description": "诺亚宝库 - Electron 桌面客户端",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "electron .",
+    "dev": "tsc && electron .",
+    "pack": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder"
+  },
+  "build": {
+    "appId": "com.noah-ark.app",
+    "productName": "诺亚宝库",
+    "copyright": "Copyright © 2024 诺亚方舟项目组",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "node.exe",
+        "to": "app/node.exe"
+      },
+      {
+        "from": "../.next",
+        "to": "app/.next",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "../app",
+        "to": "app/app",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "../lib",
+        "to": "app/lib",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "../package.json",
+        "to": "app/package.json"
+      },
+      {
+        "from": "../next.config.mjs",
+        "to": "app/next.config.mjs"
+      },
+      {
+        "from": "../tailwind.config.ts",
+        "to": "app/tailwind.config.ts"
+      },
+      {
+        "from": "../postcss.config.mjs",
+        "to": "app/postcss.config.mjs"
+      },
+      {
+        "from": "../tsconfig.json",
+        "to": "app/tsconfig.json"
+      },
+      {
+        "from": "../node_modules",
+        "to": "app/node_modules",
+        "filter": ["**/*"]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "诺亚宝库"
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8",
+    "typescript": "^5.0.0"
+  },
+  "author": "诺亚方舟项目组",
+  "license": "MIT"
+}

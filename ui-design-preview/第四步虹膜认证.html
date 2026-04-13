@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>诺亚保管库 - 虹膜认证</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://api.fontshare.com/v2/css?f[]=satoshi@700,900');
+        
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+        }
+        
+        .gradient-sky {
+            background: linear-gradient(180deg, #E8F4FF 0%, #F5F9FF 50%, #FFFFFF 100%);
+        }
+        
+        .mountain-bg {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 200px;
+            background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1440 320'%3E%3Cpath fill='%23E8F4FF' fill-opacity='0.6' d='M0,224L48,213.3C96,203,192,181,288,181.3C384,181,480,203,576,224C672,245,768,267,864,250.7C960,235,1056,181,1152,165.3C1248,149,1344,171,1392,181.3L1440,192L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z'%3E%3C/path%3E%3C/svg%3E");
+            background-size: cover;
+            background-position: bottom;
+            pointer-events: none;
+        }
+        
+        .iris-scanner {
+            position: relative;
+            width: 180px;
+            height: 180px;
+            margin: 0 auto;
+        }
+        
+        .iris-icon {
+            width: 120px;
+            height: 120px;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+        
+        .scanner-ring {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            border: 3px dashed #3B82F6;
+            border-radius: 50%;
+            animation: rotate 3s linear infinite;
+        }
+        
+        .scanner-ring-outer {
+            width: 180px;
+            height: 180px;
+        }
+        
+        .scanner-ring-inner {
+            width: 140px;
+            height: 140px;
+            animation-direction: reverse;
+            animation-duration: 2s;
+        }
+        
+        @keyframes rotate {
+            from {
+                transform: translate(-50%, -50%) rotate(0deg);
+            }
+            to {
+                transform: translate(-50%, -50%) rotate(360deg);
+            }
+        }
+        
+        .scan-line {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 2px;
+            height: 90px;
+            background: linear-gradient(180deg, transparent, #3B82F6, transparent);
+            animation: scan 2s ease-in-out infinite;
+        }
+        
+        @keyframes scan {
+            0%, 100% {
+                transform: translate(-50%, -50%) rotate(0deg);
+            }
+            50% {
+                transform: translate(-50%, -50%) rotate(180deg);
+            }
+        }
+        
+        .pulse-ring {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            border: 2px solid #3B82F6;
+            border-radius: 50%;
+            opacity: 0;
+            animation: pulse 2s ease-out infinite;
+        }
+        
+        .pulse-1 {
+            width: 180px;
+            height: 180px;
+            animation-delay: 0s;
+        }
+        
+        .pulse-2 {
+            width: 180px;
+            height: 180px;
+            animation-delay: 0.7s;
+        }
+        
+        .pulse-3 {
+            width: 180px;
+            height: 180px;
+            animation-delay: 1.4s;
+        }
+        
+        @keyframes pulse {
+            0% {
+                opacity: 0.6;
+                transform: translate(-50%, -50%) scale(0.8);
+            }
+            100% {
+                opacity: 0;
+                transform: translate(-50%, -50%) scale(1.3);
+            }
+        }
+        
+        .btn-cancel {
+            position: fixed;
+            bottom: 40px;
+            right: 40px;
+            padding: 12px 24px;
+            background: transparent;
+            border: 2px solid #DEE2E6;
+            border-radius: 12px;
+            color: #6B7280;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-cancel:hover {
+            border-color: #1A1A1A;
+            color: #1A1A1A;
+            background: white;
+        }
+        
+        /* 测试按钮样式 */
+        .test-buttons {
+            position: fixed;
+            bottom: 40px;
+            left: 40px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        .btn-test {
+            padding: 10px 20px;
+            background: #3B82F6;
+            border: none;
+            border-radius: 8px;
+            color: white;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-test:hover {
+            background: #2563EB;
+            transform: translateY(-1px);
+        }
+        
+        .btn-test:active {
+            transform: translateY(0);
+        }
+        
+        .btn-test.fail {
+            background: #EF4444;
+        }
+        
+        .btn-test.fail:hover {
+            background: #DC2626;
+        }
+        
+        /* 失败状态样式 */
+        .error-icon {
+            width: 140px;
+            height: 140px;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+        
+        .error-ring {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 180px;
+            height: 180px;
+            border: 4px solid #EF4444;
+            border-radius: 50%;
+            animation: errorShake 0.5s ease-in-out;
+        }
+        
+        @keyframes errorShake {
+            0%, 100% { transform: translate(-50%, -50%) translateX(0); }
+            25% { transform: translate(-50%, -50%) translateX(-10px); }
+            75% { transform: translate(-50%, -50%) translateX(10px); }
+        }
+        
+        /* 状态显示控制 */
+        .state-content {
+            display: none;
+        }
+        
+        .state-content.active {
+            display: block;
+        }
+        
+        .btn-retry {
+            padding: 14px 32px;
+            background: #1A1A1A;
+            border: none;
+            border-radius: 12px;
+            color: white;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 20px;
+        }
+        
+        .btn-retry:hover {
+            background: #000000;
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+        }
+        
+        .btn-retry:active {
+            transform: translateY(0);
+        }
+        
+        /* 触摸优化 */
+        * {
+            -webkit-tap-highlight-color: transparent;
+            touch-action: manipulation;
+        }
+    </style>
+</head>
+<body class="gradient-sky min-h-screen flex flex-col">
+    <!-- 山景背景 -->
+    <div class="mountain-bg"></div>
+    
+    <!-- 顶部导航区 -->
+    <header class="w-full py-6 px-8">
+        <div class="max-w-5xl mx-auto text-center">
+            <h1 class="text-2xl font-black text-gray-700" style="font-family: 'Satoshi', sans-serif;">
+                诺亚保管库
+            </h1>
+        </div>
+    </header>
+
+    <!-- 主内容区 -->
+    <main class="flex-1 flex items-center justify-center p-6">
+        <div class="w-full max-w-md text-center">
+            
+            <!-- 状态 1: 正在扫描（默认显示） -->
+            <div id="state-scanning" class="state-content active">
+                <!-- 虹膜扫描器 -->
+                <div class="iris-scanner mb-10">
+                    <!-- 脉冲环 -->
+                    <div class="pulse-ring pulse-1"></div>
+                    <div class="pulse-ring pulse-2"></div>
+                    <div class="pulse-ring pulse-3"></div>
+                    
+                    <!-- 旋转环 -->
+                    <div class="scanner-ring scanner-ring-outer"></div>
+                    <div class="scanner-ring scanner-ring-inner"></div>
+                    
+                    <!-- 扫描线 -->
+                    <div class="scan-line"></div>
+                    
+                    <!-- 虹膜图标 -->
+                    <svg class="iris-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <ellipse cx="12" cy="12" rx="10" ry="8" stroke="#3B82F6" stroke-width="1.5"/>
+                        <circle cx="12" cy="12" r="4" fill="#3B82F6" opacity="0.3"/>
+                        <circle cx="12" cy="12" r="2" fill="#3B82F6"/>
+                        <path stroke="#3B82F6" stroke-width="1" d="M12 4v2M12 18v2M4 12h2M18 12h2"/>
+                    </svg>
+                </div>
+                
+                <!-- 状态文字 -->
+                <h2 class="text-xl font-bold text-gray-700 mb-3">
+                    正在扫描虹膜
+                </h2>
+                <p class="text-gray-500 text-sm leading-relaxed">
+                    请注视设备摄像头<br/>保持眼睛与摄像头平齐
+                </p>
+                
+                <!-- 进度提示 -->
+                <div class="mt-10 flex items-center justify-center space-x-2">
+                    <div class="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style="animation-delay: 0s;"></div>
+                    <div class="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style="animation-delay: 0.2s;"></div>
+                    <div class="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style="animation-delay: 0.4s;"></div>
+                </div>
+            </div>
+            
+            <!-- 状态 2: 识别失败 -->
+            <div id="state-failure" class="state-content">
+                <!-- 失败动画 -->
+                <div class="iris-scanner mb-10">
+                    <div class="error-ring"></div>
+                    <svg class="iris-icon error-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                              d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </div>
+                
+                <!-- 状态文字 -->
+                <h2 class="text-xl font-bold text-gray-700 mb-3">
+                    识别失败
+                </h2>
+                <p class="text-gray-500 text-sm leading-relaxed">
+                    虹膜不匹配或扫描不清晰<br/>请重新尝试
+                </p>
+                
+                <!-- 重试按钮 -->
+                <button class="btn-retry" onclick="showState('state-scanning')">
+                    重新扫描
+                </button>
+            </div>
+            
+        </div>
+    </main>
+
+    <!-- 测试按钮（左下角） -->
+    <div class="test-buttons">
+        <button class="btn-test fail" onclick="showState('state-failure')">
+            模拟失败
+        </button>
+        <button class="btn-test" onclick="showSuccess()">
+            模拟成功
+        </button>
+    </div>
+
+    <!-- 取消按钮（右下角） -->
+    <button class="btn-cancel" onclick="goBack()">
+        取消
+    </button>
+
+    <script>
+        // 状态切换函数
+        function showState(stateId) {
+            // 隐藏所有状态
+            document.querySelectorAll('.state-content').forEach(el => {
+                el.classList.remove('active');
+            });
+            // 显示目标状态
+            document.getElementById(stateId).classList.add('active');
+        }
+        
+        // 模拟成功（跳转到下一页 - 待设计）
+        function showSuccess() {
+            alert('识别成功！即将跳转到下一页...（下一页待设计）');
+            // window.location.href = '下一页.html'; // 待设计
+        }
+        
+        // 返回上一级
+        function goBack() {
+            window.location.href = '第二步选择认证方式.html';
+        }
+    </script>
+</body>
+</html>

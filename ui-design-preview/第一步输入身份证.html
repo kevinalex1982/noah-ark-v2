@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>诺亚保管库 - 身份验证</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://api.fontshare.com/v2/css?f[]=satoshi@700,900');
+        
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+        }
+        
+        .gradient-subtle {
+            background: linear-gradient(180deg, #F0F4FF 0%, #E9EEF7 100%);
+        }
+        
+        .input-display {
+            border: 2px solid #DEE2E6;
+            transition: all 0.3s ease;
+            letter-spacing: 8px;
+            font-size: 20px;
+            font-weight: 600;
+        }
+        
+        .input-display:focus {
+            border-color: #1A1A1A;
+            box-shadow: 0 0 0 4px rgba(26, 26, 26, 0.15);
+            outline: none;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%);
+            transition: all 0.3s ease;
+        }
+        
+        .btn-primary:hover {
+            background: linear-gradient(135deg, #1D4ED8 0%, #1E40AF 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(37, 99, 235, 0.3);
+        }
+        
+        .btn-primary:active {
+            transform: translateY(0);
+        }
+        
+        .keypad-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            max-width: 360px;
+            margin: 0 auto;
+        }
+        
+        .keypad-btn {
+            aspect-ratio: 1.2;
+            border-radius: 16px;
+            background: white;
+            border: 2px solid #E9ECEF;
+            font-size: 22px;
+            font-weight: 600;
+            color: #1A1A1A;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .keypad-btn:hover {
+            background: #F8F9FA;
+            border-color: #1A1A1A;
+        }
+        
+        .keypad-btn:active {
+            transform: scale(0.95);
+            background: #1A1A1A;
+            color: white;
+        }
+        
+        .keypad-btn.x-key {
+            color: #DC2626;
+            font-weight: 700;
+        }
+        
+        .keypad-btn.action-key {
+            color: #2563EB;
+            font-weight: 700;
+        }
+        
+        .id-card-icon {
+            width: 80px;
+            height: 80px;
+            background: linear-gradient(135deg, #F8F9FA 0%, #E9ECEF 100%);
+            border-radius: 20px;
+            border: 2px solid #DEE2E6;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 25px;
+        }
+        
+        /* 触摸优化 */
+        * {
+            -webkit-tap-highlight-color: transparent;
+            touch-action: manipulation;
+        }
+    </style>
+</head>
+<body class="gradient-subtle min-h-screen flex flex-col">
+    <!-- 顶部导航区 -->
+    <header class="w-full py-4 px-8 bg-white/50 backdrop-blur-sm border-b border-gray-200">
+        <div class="max-w-5xl mx-auto flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <div class="w-10 h-10 rounded-xl bg-gray-900 flex items-center justify-center">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" 
+                              d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+                    </svg>
+                </div>
+                <h1 class="text-2xl font-black text-gray-900" style="font-family: 'Satoshi', sans-serif;">
+                    诺亚保管库
+                </h1>
+            </div>
+            <div class="text-right">
+                <p class="text-xs text-gray-500">© 2024 诺亚 · 安全可靠</p>
+            </div>
+        </div>
+    </header>
+
+    <!-- 主内容区 -->
+    <main class="flex-1 flex items-center justify-center p-6">
+        <div class="w-full max-w-md">
+            <!-- 主卡片 -->
+            <div class="bg-white rounded-3xl shadow-xl border border-gray-200 p-8 md:p-10">
+                <!-- 身份证图标 -->
+                <div class="id-card-icon">
+                    <svg class="w-10 h-10 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" 
+                              d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-5 8a2 2 0 100-4 2 2 0 000 4zm0 0c1.306 0 2.417.835 2.83 2M9 14a3.001 3.001 0 00-2.83 2M15 11h3m-3 4h2"/>
+                    </svg>
+                </div>
+                
+                <!-- 标题 -->
+                <h2 class="text-2xl md:text-3xl font-black text-gray-900 text-center mb-2" 
+                    style="font-family: 'Satoshi', sans-serif;">
+                    身份验证
+                </h2>
+                
+                <!-- 副标题 -->
+                <p class="text-gray-500 text-center text-sm mb-8">
+                    请输入 18 位身份证号码
+                </p>
+                
+                <!-- 输入显示框 -->
+                <div class="mb-6">
+                    <input 
+                        type="text" 
+                        id="idDisplay"
+                        class="input-display w-full px-6 py-4 rounded-xl text-gray-900 placeholder-gray-400 text-center uppercase"
+                        placeholder="请输入身份证号"
+                        readonly
+                        maxlength="18"
+                    />
+                </div>
+                
+                <!-- 软键盘 -->
+                <div class="keypad-grid mb-6">
+                    <button class="keypad-btn" onclick="inputChar('1')">1</button>
+                    <button class="keypad-btn" onclick="inputChar('2')">2</button>
+                    <button class="keypad-btn" onclick="inputChar('3')">3</button>
+                    <button class="keypad-btn" onclick="inputChar('4')">4</button>
+                    <button class="keypad-btn" onclick="inputChar('5')">5</button>
+                    <button class="keypad-btn" onclick="inputChar('6')">6</button>
+                    <button class="keypad-btn" onclick="inputChar('7')">7</button>
+                    <button class="keypad-btn" onclick="inputChar('8')">8</button>
+                    <button class="keypad-btn" onclick="inputChar('9')">9</button>
+                    <button class="keypad-btn x-key" onclick="inputChar('X')">X</button>
+                    <button class="keypad-btn" onclick="inputChar('0')">0</button>
+                    <button class="keypad-btn action-key" onclick="deleteChar()">⌫</button>
+                </div>
+                
+                <!-- 确认按钮 -->
+                <a href="第二步选择认证方式.html" class="touch-target btn-primary w-full py-4 rounded-xl text-white font-bold text-lg tracking-wide text-center block">
+                    确 认
+                </a>
+                
+                <!-- 提示信息 -->
+                <p class="text-center text-xs text-gray-400 mt-6">
+                    身份证末位为 X 时请输入大写字母
+                </p>
+            </div>
+        </div>
+    </main>
+
+    <!-- 底部状态栏 -->
+    <footer class="w-full py-3 px-8 bg-white/50 backdrop-blur-sm border-t border-gray-200">
+        <div class="max-w-5xl mx-auto flex items-center justify-between text-xs text-gray-500">
+            <div class="flex items-center space-x-4">
+                <span class="flex items-center">
+                    <span class="w-2 h-2 bg-green-500 rounded-full mr-1.5"></span>
+                    系统正常
+                </span>
+                <span class="flex items-center">
+                    <span class="w-2 h-2 bg-blue-500 rounded-full mr-1.5"></span>
+                    设备在线
+                </span>
+            </div>
+            <div id="currentTime"></div>
+        </div>
+    </footer>
+
+    <script>
+        let idNumber = '';
+        const maxLength = 18;
+        
+        function inputChar(char) {
+            if (idNumber.length < maxLength) {
+                idNumber += char;
+                updateDisplay();
+            }
+        }
+        
+        function deleteChar() {
+            idNumber = idNumber.slice(0, -1);
+            updateDisplay();
+        }
+        
+        function updateDisplay() {
+            document.getElementById('idDisplay').value = idNumber;
+        }
+        
+        function updateTime() {
+            const now = new Date();
+            const timeStr = now.toLocaleString('zh-CN', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: false
+            });
+            document.getElementById('currentTime').textContent = timeStr;
+        }
+        updateTime();
+        setInterval(updateTime, 1000);
+    </script>
+</body>
+</html>

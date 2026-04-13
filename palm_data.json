@@ -1,0 +1,31 @@
+{
+  "device": "掌纹设备 (掌静脉)",
+  "service": "127.0.0.1:8080",
+  "program": "maser_H01_wa04_V7.77.exe",
+  
+  "全部用户查询 (105)": {
+    "request": "http://127.0.0.1:8080/api?sendData={\"request\":\"105\"}",
+    "response": {
+      "response": "105",
+      "userNumber": 1,
+      "userData": [
+        {"userId": "cjj"}
+      ]
+    }
+  },
+  
+  "单个用户查询 (106)": {
+    "request": "http://127.0.0.1:8080/api?sendData={\"request\":\"106\",\"userId\":\"cjj\"}",
+    "response": {
+      "code": "200",
+      "response": "106",
+      "userId": "cjj"
+    }
+  },
+  
+  "总结": {
+    "已注册用户数量": 1,
+    "用户列表": ["cjj"],
+    "状态": "✅ 成功获取"
+  }
+}

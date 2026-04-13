@@ -1,0 +1,557 @@
+
+一、获取识别记录
+Url :http://{ip}:9003/records
+请求方式：post
+报文体包括：
+count：int类型，识别记录的条数。
+endTime:long类型，识别记录截止时间。
+key:字符串类型，工号或者姓名。
+lastCreateTime:long类型，每次获取的最后一条记录的识别时间。
+needImages:int类型是否需要图片，1：需要图片。
+startTime:long类型，识别记录的开始时间。
+报文示例：
+{
+		"count":25,
+		"endTime":1594742399100,
+		"key":"",
+		"lastCreateTime":0,
+		"needImages":1,
+		"startTime":1594569600100
+}
+
+
+设备回复：
+报文字段包括：
+deviceSN：字符串类型，设备标识代码SN。
+errorCode：字符串类型，错误代码，“0”成功，具体值详见附录。
+hasMore：boolean类型，是否有更多数据，true:有，false：没有更多数据。
+body：JSON数组，识别记录列表。
+cardType：身份证类型，字符串类型，卡类型，仅cardId为空””时，可以为””，必填字段
+“1”：身份证
+“2”：外国人永久居住证
+“3”：港澳台居住证
+“9”：普通IC卡
+createTime：long类型，创建的时间。
+extAttribute：JSON对象，扩展属性
+temperature：字符串类型，体温。
+faceScore：字符串类型，”0”~”1”之间的数字型字符串，人脸比对分数，可以为””。
+id：识别记录标识
+irisLeftScore：字符串类型，左眼虹膜比对分数。
+irisRightScore：字符串类型，右眼虹膜比对分数。
+matchRule：json对象。
+faceThresh：字符串类型，人脸比对时匹配的阈值。
+group:字符串类型，识别策略组合方式，0：任一项通过开门，1：所有项通过开门
+irisMatchMode：字符串类型，虹膜比对时匹配策略，0:任一眼通过，1:必须左眼通过,2:必须右眼通过，9:双眼同时通过
+irisThresh：虹膜分数阈值。
+matchType：json对象
+card：字符串类型，是否启用卡识别，0：不启用，1：启用。
+face：字符串类型，是否启用人脸识别，0：不启用，1：启用。
+iris:字符串类型，是否启用人脸识别，0：不启用，1：启用。
+memberName：字符串类型，姓名。
+modeOneToN：boolean类型，true 1：N模式,false 不是1：N。
+openDoor：Boolean类型，开门，true 开门，false 关门
+staffNum：字符串类型，工号。
+success：boolean类型，成功 true，失败 false。
+type：int类型，识别模式，1：虹膜，2：人脸，4：卡或证件。
+
+报文示例：
+{
+"body":[
+			.{
+			"cardType":0,
+			"createTime":1594699068640,
+			"extAttribute":{
+			"temperature":"36.7"
+			},
+			"faceScore":0.0,
+			"id":5,
+			"irisLeftScore":78.2,
+			"irisRightScore":0.0,
+			"matchRule":{
+			"faceThresh":"0.93",
+			"group":"0",
+			"irisMatchMode":"0",
+			"irisThresh":"0.7",
+			"matchType":{
+			"card":"0",
+			"face":"0",
+			"iris":"1"
+			}
+			},
+			"memberName":"张三",
+			"modeOneToN":true,
+			"openDoor":true,
+			"staffNum":"777",
+			"success":true,
+			"type":1
+			}
+		],
+"deviceSN":"200601-J80-S30-0017",
+"errorCode":0,
+"hasMore":false
+}
+
+
+
+
+二、获取人员信息接口
+Url :http://{ip}:9003/members
+请求方式：post
+报文体包括：
+count:int类型，识别记录的条数。
+key:字符串类型，工号或者姓名。
+lastStaffNumDec:字符串类型，最后一条人员工号对应的编号。
+needImages：int类型是否需要图片，1：需要图片。
+报文示例：
+{
+"count":10,
+"key":"",
+"lastStaffNumDec":"",
+"needImages":1
+}
+
+设备回复
+cardNum：字符串类型，卡或证件号。
+cardType：卡或证件类型，可选，有值时cardNum也必须有值，身份证1，外国人永居证2，港澳台居住证3，IC卡9。
+faceImage：字符串类型，人脸图片，必填。
+leftIrisImage：字符串类型，不一定填（依赖于singleIrisAllowed），左眼虹膜图片，bmp图片Base64。
+name：字符串类型，姓名，必填。
+openDoor：字符串类型，开门权限，必填字段，0：不能开门，1：能开门。
+Purview：角色，必填，管理员10，操作者20，一般用户30，访客40。
+purviewEndTime：访客有效结束时间，单位：毫秒，purview为40时必填。
+purviewStartTime：访客有效开始时间，单位：毫秒，purview为40时必填
+rightIrisImage：字符串类型，不一定填（依赖于singleIrisAllowed），右眼虹膜图片，bmp图片Base64。
+singleIrisAllowed：可选，是否允许单只眼睛注册，默认0，为0时，leftIrisImage、rightIrisImage都必填，为1时，leftIrisImage、rightIrisImage至少有一个必填。
+staffNum:字符串类型，工号，必填，字母数字都行。
+
+报文示例：
+{
+		   "cardNum" : "",
+		   "cardType" : 0,
+		   "faceImage" : "/9j/4AAQSkZJRgABAQAAAQABAxvZ",
+		   "leftIrisImage" : "Qk02tAQAAAAAADYEAAAoX19vXXl5es6U0dDPztDw==",
+		   "name" : "程程",
+		   "openDoor" : 1,
+		   "purview" : 30,
+		   "purviewEndTime" : 0.0,
+		   "purviewStartTime" : 0.0,
+		   "rightIrisImage" : "Qk02tAQAAAAAADYEAAAo=",
+		   "singleIrisAllowed" : 0,
+		   "staffNum" : "777"
+		}
+
+三、获取设备参数
+Url:http://{ip}:9003/settingsGet
+请求方式：post
+报文体报文体为空：{}
+设备回复：
+报文字段包括：
+errorCode：字符串类型，错误代码，具体值详见附录1，必填字段
+deviceSN:设备标识SN
+body:  JSON对象
+lastUpdateTimestamp：字符串类型，参数最后更新时间（服务器时间），UNIX时间戳格式，精确到毫秒，必填字段
+dataExpired：字符串类型，识别记录保存的时间，必填字段，其具体内容为：
+“0”：永久
+“10”：10天
+“30”：30天
+“90”：90天
+“180”：180天
+“365”：1年
+“1095”：3年
+“3650”：10年
+led：字符串类型，整数型字符串，”0”~”100”表示LED亮度百分比，”0”表示关闭LED，”100”表示最大亮度，若为”-1”则表示自动调节亮度，必填字段
+tamper：字符串类型，防拆开关，必填字段，其具体内容为：
+“0”：关闭
+“1”：开启
+match：JSON对象，特征比对相关参数
+remoteMode：字符串类型，”0”为联网识别，”1”为本地识别，必填字段
+matchType：JSON对象，识别模式
+iris：字符串类型，是否启用虹膜识别，”0”为不启用，”1”为启用，必填字段
+face：字符串类型，是否启用人脸识别，”0”为不启用，”1”为启用，必填字段
+card：字符串类型，是否启用卡识别，”0”为不启用，”1”为启用，必填字段
+group：字符串类型，识别策略组合方式，”0”表示matchType启用项中的任一项通过即可，”1”表示必须matchType启用项中所有项通过
+IrisMatchType：JSON对象，虹膜识别模式
+regMode：字符串类型，虹膜注册时匹配策略，必填字段，具体内容如下：
+“0”：任一眼虹膜匹配
+“1”：左眼虹膜匹配
+”2”：右眼虹膜匹配
+“9”：双眼同时匹配
+identifyMode：字符串类型，虹膜比对时匹配策略，必填字段，具体内容如下：
+“0”：任一眼虹膜匹配
+“1”：左眼虹膜匹配
+”2”：右眼虹膜匹配
+“9”：双眼同时匹配
+thresh：JSON对象，阈值参数
+irisQualityReg：字符串类型，“0”~“1”之间的数字型字符串，虹膜注册图片质量阈值，必填字段
+irisQualityMatch：字符串类型，“0”~“1”之间的数字型字符串，虹膜识别图片质量阈值，必填字段
+irisReg：字符串类型，“0”~“1”之间的数字型字符串，虹膜注册时匹配阈值，必填字段
+irisMatch：字符串类型，“0”~“1”之间的数字型字符串，虹膜比对时匹配阈值，必填字段
+faceMatch：字符串类型，“0”~“1”之间的数字型字符串，人脸比对时匹配的阈值，必填字段
+output：JSON对象，信号输出参数
+dryContact：字符串类型，干接点，”0”为不输出，”1”为输出，必填字段
+wiegand：JSON对象，维根协议参数
+enable：字符串类型，”0”为不输出，”1”为输出，必填字段
+protocol：字符串类型，协议类型，”0”表示维根26，”1”表示维根34，必填字段
+outputType：字符串类型，维根输出类型，”0”表示输出工号，”1”表示输出卡号，”2”表示输出固定值，必填字段
+fixedContent：字符串类型，固定输出的内容，必填字段
+doorLock：JSON对象，门磁参数
+type：字符串类型，门磁类型，”0”表示门磁关闭，”1”表示门磁开启，”9”表示无门磁，必填字段
+delay：字符串类型，门磁延时，单位秒，必填字段
+closedCircuit：字符串类型，闭门回锁，”0”表示关闭，”1”表示开启，”9”表示无闭门回锁，必填字段
+ntp：字符串类型，是否网络对时，”0”表示不启用，”1”表示启用网络对时，必填字段
+sound：字符串类型，”0”~”100”的数字型字符串，音量百分比，必填字段
+screenOff：字符串类型，熄屏时间，必填字段，具体内容如下：
+“0”：永不熄屏
+“30”：30秒
+“60”：1分钟
+“120”：2分钟
+“300”：5分钟
+doorBell：字符串类型，门铃持续时间，必填字段，具体内容如下：
+“2”：2秒
+“5”：5秒
+“10”：10秒
+“15”：15秒
+“30”：30秒
+temperature：JSON对象，测温相关
+enable：字符串类型，是否启用测温功能，“0”不启用，“1”启用，必填字段
+alarmThresh：字符串类型，体温超标报警温度，具体内容为浮点数类型的字符串，不带单位，如”37.3”，当enable为“1”时，本项为必填字段
+
+报文示例：
+
+{"errCode": "0",
+ "deviceSN":"200601-J80-S30-0017",
+  "body": {
+    "lastUpdateTimestamp": "1568001722123",
+    "dataExpired": "0",
+    "led": "0",
+    "tamper": "0",
+    "match": {
+      "remoteMode": "0",
+      "matchType": {
+        "iris": "1",
+        "face": "1",
+        "card": "1"
+      },
+      "group": "0"
+    },
+    "irisMatchType": {
+      "regMode": "9",
+      "identifyMode": "0"
+    },
+    "thresh": {
+      "irisQualityReg": "0.75",
+      "irisQualityMatch": "0.75",
+      "irisReg": "0.75",
+      "irisMatch": "0.70",
+      "faceMatch": "0.85"
+    },
+    "output": {
+      "dryContact": "1",
+      "wiegand": {
+        "enable": "1",
+        "protocol": "0",
+        "outputType": "1",
+        "fixedContent": "123456"
+      }
+    },
+    "doorLock": {
+      "type": "1",
+      "delay": "200",
+      "closedCircuit": "2"
+    },
+    "ntp": "1",
+    "sound": "80",
+    "screenOff": "0",
+"doorBell": "5",
+	“temperature”: {
+		“enable”:”1”,
+		“alarmThresh”:”37.3”
+	}
+  }
+}
+
+
+四、设置设备参数
+Url:http://{ip}:9003/settingsUpdate
+请求方式：post
+报文体包括：
+errorCode：字符串类型，错误代码，具体值详见附录1，必填字段
+deviceSN:设备标识SN
+body:  JSON对象
+lastUpdateTimestamp：字符串类型，参数最后更新时间（服务器时间），UNIX时间戳格式，精确到毫秒，必填字段
+dataExpired：字符串类型，识别记录保存的时间，必填字段，其具体内容为：
+“0”：永久
+“10”：10天
+“30”：30天
+“90”：90天
+“180”：180天
+“365”：1年
+“1095”：3年
+“3650”：10年
+led：字符串类型，整数型字符串，”0”~”100”表示LED亮度百分比，”0”表示关闭LED，”100”表示最大亮度，若为”-1”则表示自动调节亮度，必填字段
+tamper：字符串类型，防拆开关，必填字段，其具体内容为：
+“0”：关闭
+“1”：开启
+match：JSON对象，特征比对相关参数
+remoteMode：字符串类型，”0”为联网识别，”1”为本地识别，必填字段
+matchType：JSON对象，识别模式
+iris：字符串类型，是否启用虹膜识别，”0”为不启用，”1”为启用，必填字段
+face：字符串类型，是否启用人脸识别，”0”为不启用，”1”为启用，必填字段
+card：字符串类型，是否启用卡识别，”0”为不启用，”1”为启用，必填字段
+group：字符串类型，识别策略组合方式，”0”表示matchType启用项中的任一项通过即可，”1”表示必须matchType启用项中所有项通过
+IrisMatchType：JSON对象，虹膜识别模式
+regMode：字符串类型，虹膜注册时匹配策略，必填字段，具体内容如下：
+“0”：任一眼虹膜匹配
+“1”：左眼虹膜匹配
+”2”：右眼虹膜匹配
+“9”：双眼同时匹配
+identifyMode：字符串类型，虹膜比对时匹配策略，必填字段，具体内容如下：
+“0”：任一眼虹膜匹配
+“1”：左眼虹膜匹配
+”2”：右眼虹膜匹配
+“9”：双眼同时匹配
+thresh：JSON对象，阈值参数
+irisQualityReg：字符串类型，“0”~“1”之间的数字型字符串，虹膜注册图片质量阈值，必填字段
+irisQualityMatch：字符串类型，“0”~“1”之间的数字型字符串，虹膜识别图片质量阈值，必填字段
+irisReg：字符串类型，“0”~“1”之间的数字型字符串，虹膜注册时匹配阈值，必填字段
+irisMatch：字符串类型，“0”~“1”之间的数字型字符串，虹膜比对时匹配阈值，必填字段
+faceMatch：字符串类型，“0”~“1”之间的数字型字符串，人脸比对时匹配的阈值，必填字段
+output：JSON对象，信号输出参数
+dryContact：字符串类型，干接点，”0”为不输出，”1”为输出，必填字段
+wiegand：JSON对象，维根协议参数
+enable：字符串类型，”0”为不输出，”1”为输出，必填字段
+protocol：字符串类型，协议类型，”0”表示维根26，”1”表示维根34，必填字段
+outputType：字符串类型，维根输出类型，”0”表示输出工号，”1”表示输出卡号，”2”表示输出固定值，必填字段
+fixedContent：字符串类型，固定输出的内容，必填字段
+doorLock：JSON对象，门磁参数
+type：字符串类型，门磁类型，”0”表示门磁关闭，”1”表示门磁开启，”9”表示无门磁，必填字段
+delay：字符串类型，门磁延时，单位秒，必填字段
+closedCircuit：字符串类型，闭门回锁，”0”表示关闭，”1”表示开启，”9”表示无闭门回锁，必填字段
+ntp：字符串类型，是否网络对时，”0”表示不启用，”1”表示启用网络对时，必填字段
+sound：字符串类型，”0”~”100”的数字型字符串，音量百分比，必填字段
+screenOff：字符串类型，熄屏时间，必填字段，具体内容如下：
+“0”：永不熄屏
+“30”：30秒
+“60”：1分钟
+“120”：2分钟
+“300”：5分钟
+doorBell：字符串类型，门铃持续时间，必填字段，具体内容如下：
+“2”：2秒
+“5”：5秒
+“10”：10秒
+“15”：15秒
+“30”：30秒
+temperature：JSON对象，测温相关
+enable：字符串类型，是否启用测温功能，“0”不启用，“1”启用，必填字段
+alarmThresh：字符串类型，体温超标报警温度，具体内容为浮点数类型的字符串，不带单位，如”37.3”，当enable为“1”时，本项为必填字段
+
+请求示例：
+{
+			"dataExpired":"180",
+			"doorBell":"2",
+			"doorLock":{
+			"closedCircuit":"1",
+			"delay":"5000",
+			"type":"0"
+			},
+			"irisMatchType":{
+			"identifyMode":"0",
+			"regMode":"9"
+			},
+			"led":"-1",
+			"match":{
+			"group":"0",
+			"matchType":{
+			"card":"0",
+			"face":"0",
+			"iris":"1"
+			},
+			"remoteMode":"1"
+			},
+			"ntp":"1",
+			"output":{
+			"dryContact":"1",
+			"wiegand":{
+			"enable":"1",
+			"fixedContent":"0",
+			"outputType":"0",
+			"protocol":"0"
+			}
+			},
+			"screenOff":"30",
+			"sound":"73",
+			"tamper":"0",
+			"temperature":{
+			"alarmThresh":"37.3",
+			"enable":"1"
+			},
+			"thresh":{
+			"faceMatch":"0.93",
+			"irisMatch":"0.70",
+			"irisQualityMatch":"0.60",
+			"irisQualityReg":"0.65",
+			"irisReg":"0.70"
+			}
+		}
+
+设备回复：
+报文字段包括：
+deviceSN：字符串类型，设备标识SN
+errorCode：字符串类型，错误代码，具体值详见附录1，必填字段
+
+
+报文示例：
+{
+"deviceSN":"200601-J80-S30-0017",
+"errorCode":0
+}
+
+
+五、人员上传
+Url:http://{ip}:9003/memberSave
+请求方式：post
+报文体包括：
+cardNum：字符串类型，卡或证件号，可选，有值时cardType也必须有值。
+cardType：int类型，卡或证件类型，可选，有值时cardNum也必须有值，身份证1，外国人永居证2，港澳台居住证3，IC卡9。
+faceImage：字符串类型，必填，人脸图片，jpeg图片Base64。
+leftIrisImage：字符串类型，不一定填（依赖于singleIrisAllowed），左眼虹膜图片，bmp图片Base64。
+rightIrisImage：字符串类型，不一定填（依赖于singleIrisAllowed），右眼虹膜图片，bmp图片Base64。
+name：字符串类型，姓名，必填。
+openDoor：字符串类型，开门权限，0：不能开门，1：能开门。
+Purview：int类型，角色，必填，管理员10，操作者20，一般用户30，访客40。
+purviewEndTime：字符串类型，访客有效结束时间，单位：毫秒，purview为40时必填。
+purviewStartTime：字符串类型，访客有效开始时间，单位：毫秒，purview为40时必填。
+singleIrisAllowed：int类型，可选，是否允许单只眼睛注册，默认0，为0时，leftIrisImage、rightIrisImage都必填，为1时，leftIrisImage、rightIrisImage至少有一个必填。
+staffNum：字符串类型，人员工号。
+报文示例：
+{
+   "cardNum" : "",
+   "cardType" : 0,
+   "faceImage" : 1G/dpfmf/Z",
+   "leftIrisImage" : "Qk02tAQAAAAAADYEAAAoAAA3dzc2g0w==",
+   "name" : "张三",
+   "openDoor" : 1,
+   "purview" : 30,
+   "purviewEndTime" : 0.0,
+   "purviewStartTime" : 0.0,
+   "rightIrisImage" : "Qk0fv4+fjg52ulVWFlfYGJhX11aAfXeIB8jI==",
+   "singleIrisAllowed" : 0,
+   "staffNum" : "777"
+}
+
+设备回复：
+deviceSN：字符串类型，设备标识SN。
+errorCode：字符串类型，错误代码，“0”成功，具体值详见附录。
+报文示例：
+{
+"deviceSN":"200601-J80-S30-0017",
+"errorCode":0
+}
+
+
+
+六、设备锁定/解锁
+Url:http://{ip}:9003/memberSaveState
+请求方式：post
+报文体包括：
+ip：字符串类型，操作端的ip地址
+state:int类型，解锁屏幕：0,锁定屏幕：1。
+报文示例：
+{
+"ip":"192.168.0.110",
+"state":1
+}
+
+设备回复：
+报文字段：
+deviceSN：字符串类型，设备标识SN。
+errorCode：字符串类型，错误代码，“0”成功，具体值详见附录。
+报文示例：
+{
+"deviceSN":"200601-J80-S30-0017",
+"errorCode":0
+}
+
+七、人员删除
+Url:http://{ip}:9003/memberDelete
+请求方式：post
+报文体包括：
+staffNum：字符串类型，人员工号。
+报文示例：
+{
+    "staffNum": "345"
+}
+设备回复：
+deviceSN：字符串类型，设备标识代码SN。
+errorCode：字符串类型，错误代码，“0”成功，具体值详见附录。
+errorInfo：字符串类型，信息内容。
+报文示例：
+{
+    "deviceSN": "17B79DOLLA",
+    "errorCode": 16,
+    "errorInfo": "Member not found"
+}
+
+八、人员更新
+Url:http://{ip}:9003/memberSave
+请求方式：post
+报文体包括：
+cardNum：字符串类型，卡或证件号，可选，有值时cardType也必须有值。
+cardType：int类型，卡或证件类型，可选，有值时cardNum也必须有值，身份证1，外国人永居证2，港澳台居住证3，IC卡9。
+faceImage：字符串类型，必填，人脸图片，jpeg图片Base64。
+leftIrisImage：字符串类型，不一定填（依赖于singleIrisAllowed），左眼虹膜图片，bmp图片Base64。
+rightIrisImage：字符串类型，不一定填（依赖于singleIrisAllowed），右眼虹膜图片，bmp图片Base64。
+name：字符串类型，姓名，必填。
+openDoor：字符串类型，开门权限，0：不能开门，1：能开门。
+Purview：int类型，角色，必填，管理员10，操作者20，一般用户30，访客40。
+purviewEndTime：字符串类型，访客有效结束时间，单位：毫秒，purview为40时必填。
+purviewStartTime：字符串类型，访客有效开始时间，单位：毫秒，purview为40时必填。
+singleIrisAllowed：int类型，可选，是否允许单只眼睛注册，默认0，为0时，leftIrisImage、rightIrisImage都必填，为1时，leftIrisImage、rightIrisImage至少有一个必填。
+staffNum：字符串类型，人员工号（人员工号不能修改）。
+报文示例：
+{
+   "cardNum" : "",
+   "cardType" : 0,
+   "faceImage" : 1G/dpfmf/Z",
+   "leftIrisImage" : "Qk02tAQAAAAAADYEAAAoAAA3dzc2g0w==",
+   "name" : "张三",
+   "openDoor" : 1,
+   "purview" : 30,
+   "purviewEndTime" : 0.0,
+   "purviewStartTime" : 0.0,
+   "rightIrisImage" : "Qk0fv4+fjg52ulVWFlfYGJhX11aAfXeIB8jI==",
+   "singleIrisAllowed" : 0,
+   "staffNum" : "777"
+}
+
+设备回复：
+deviceSN：字符串类型，设备标识SN。
+errorCode：字符串类型，错误代码，“0”成功，具体值详见附录。
+报文示例：
+{
+"deviceSN":"200601-J80-S30-0017",
+"errorCode":0
+}
+
+
+
+
+九、附录errorCode定义：
+
+0：成功
+1：JSON解析错误
+2：URL子路径错误
+3：不支持的请求类型
+4：IP为空
+5：导入人员数据时状态错误，指导入人员前没有进行“开始”操作，或App在处理“开始”		操作时发生错误
+6：参数错误
+8：卡号重复
+9：人脸特征重复
+10：虹膜特征重复
+11：生成人脸特征错误
+12：生成左眼虹膜错误
+13：生成右眼虹膜错误
+14：保存数据错误
+97：App未初始化成功
+98：App死了
+99：未知错误

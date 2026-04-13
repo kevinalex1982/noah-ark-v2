@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>诺亚保管库 - 选择认证方式</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://api.fontshare.com/v2/css?f[]=satoshi@700,900');
+        
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+        }
+        
+        .gradient-subtle {
+            background: linear-gradient(180deg, #F8F9FA 0%, #E9ECEF 100%);
+        }
+        
+        .btn-primary {
+            background: #1A1A1A;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-primary:hover {
+            background: #000000;
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+        }
+        
+        .btn-primary:active {
+            transform: translateY(0);
+        }
+        
+        .auth-card {
+            background: white;
+            border: 2px solid #DEE2E6;
+            transition: all 0.3s ease;
+        }
+        
+        .auth-card:hover {
+            border-color: #1A1A1A;
+            background: #F8F9FA;
+            transform: translateY(-4px);
+            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.1);
+        }
+        
+        .auth-card:active {
+            transform: scale(0.98);
+        }
+        
+        /* 触摸优化 */
+        * {
+            -webkit-tap-highlight-color: transparent;
+            touch-action: manipulation;
+        }
+    </style>
+</head>
+<body class="gradient-subtle min-h-screen flex flex-col">
+    <!-- 顶部导航区 -->
+    <header class="w-full py-4 px-8 bg-white/50 backdrop-blur-sm border-b border-gray-200">
+        <div class="max-w-5xl mx-auto flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <div class="w-10 h-10 rounded-xl bg-gray-900 flex items-center justify-center">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" 
+                              d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+                    </svg>
+                </div>
+                <h1 class="text-2xl font-black text-gray-900" style="font-family: 'Satoshi', sans-serif;">
+                    诺亚保管库
+                </h1>
+            </div>
+            <div class="text-right">
+                <p class="text-xs text-gray-500">© 2024 诺亚 · 安全可靠</p>
+            </div>
+        </div>
+    </header>
+
+    <!-- 主内容区 -->
+    <main class="flex-1 flex items-center justify-center p-6">
+        <div class="w-full max-w-3xl">
+            <!-- 主卡片 -->
+            <div class="bg-white rounded-2xl shadow-xl border border-gray-200 p-10 md:p-12">
+                <!-- 标题 -->
+                <h2 class="text-3xl md:text-4xl font-black text-gray-900 text-center mb-3" 
+                    style="font-family: 'Satoshi', sans-serif; letter-spacing: -1px;">
+                    选择认证方式
+                </h2>
+                
+                <!-- 副标题 -->
+                <p class="text-gray-600 text-center text-base mb-10 leading-relaxed">
+                    请选择一种认证方式完成身份验证
+                </p>
+                
+                <!-- 认证方式网格 -->
+                <div class="grid grid-cols-2 gap-5 mb-10">
+                    <!-- 密码认证 -->
+                    <a href="第三步密码认证.html" class="auth-card rounded-xl p-8 text-center cursor-pointer">
+                        <div class="w-16 h-16 rounded-xl bg-gray-50 border border-gray-200 flex items-center justify-center mx-auto mb-4">
+                            <svg class="w-8 h-8 text-gray-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" 
+                                      d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+                            </svg>
+                        </div>
+                        <p class="text-base font-bold text-gray-900">密码认证</p>
+                    </a>
+                    
+                    <!-- 虹膜认证 -->
+                    <a href="第三步虹膜认证.html" class="auth-card rounded-xl p-8 text-center cursor-pointer">
+                        <div class="w-16 h-16 rounded-xl bg-gray-50 border border-gray-200 flex items-center justify-center mx-auto mb-4">
+                            <svg class="w-8 h-8 text-gray-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" 
+                                      d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" 
+                                      d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                            </svg>
+                        </div>
+                        <p class="text-base font-bold text-gray-900">虹膜认证</p>
+                    </a>
+                    
+                    <!-- 掌纹认证 -->
+                    <a href="第三步掌纹认证.html" class="auth-card rounded-xl p-8 text-center cursor-pointer">
+                        <div class="w-16 h-16 rounded-xl bg-gray-50 border border-gray-200 flex items-center justify-center mx-auto mb-4">
+                            <svg class="w-8 h-8 text-gray-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" 
+                                      d="M7 11.5V14m0-2.5v-6a1.5 1.5 0 113 0m-3 6a1.5 1.5 0 00-3 0v2a7.5 7.5 0 0015 0v-5a1.5 1.5 0 00-3 0m-6-3V11m0-5.5v-1a1.5 1.5 0 013 0v1m0 0V11m0-5.5a1.5 1.5 0 013 0v3m0 0V11"/>
+                            </svg>
+                        </div>
+                        <p class="text-base font-bold text-gray-900">掌纹认证</p>
+                    </a>
+                    
+                    <!-- 组合认证 -->
+                    <a href="第三步组合认证.html" class="auth-card rounded-xl p-8 text-center cursor-pointer">
+                        <div class="w-16 h-16 rounded-xl bg-gray-50 border border-gray-200 flex items-center justify-center mx-auto mb-4">
+                            <svg class="w-8 h-8 text-gray-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" 
+                                      d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+                            </svg>
+                        </div>
+                        <p class="text-base font-bold text-gray-900">组合认证</p>
+                    </a>
+                </div>
+                
+                <!-- 取消按钮 -->
+                <div class="flex justify-center">
+                    <a href="第一步输入身份证.html" class="text-gray-500 hover:text-gray-900 text-sm font-medium transition-colors">
+                        ← 返回上一步
+                    </a>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- 底部状态栏 -->
+    <footer class="w-full py-3 px-8 bg-white/50 backdrop-blur-sm border-t border-gray-200">
+        <div class="max-w-5xl mx-auto flex items-center justify-between text-xs text-gray-500">
+            <div class="flex items-center space-x-4">
+                <span class="flex items-center">
+                    <span class="w-2 h-2 bg-green-500 rounded-full mr-1.5"></span>
+                    系统正常
+                </span>
+                <span class="flex items-center">
+                    <span class="w-2 h-2 bg-blue-500 rounded-full mr-1.5"></span>
+                    设备在线
+                </span>
+            </div>
+            <div id="currentTime"></div>
+        </div>
+    </footer>
+
+    <script>
+        function updateTime() {
+            const now = new Date();
+            const timeStr = now.toLocaleString('zh-CN', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: false
+            });
+            document.getElementById('currentTime').textContent = timeStr;
+        }
+        updateTime();
+        setInterval(updateTime, 1000);
+    </script>
+</body>
+</html>

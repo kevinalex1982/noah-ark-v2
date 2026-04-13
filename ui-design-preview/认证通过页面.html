@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>诺亚保管库 - 认证通过</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://api.fontshare.com/v2/css?f[]=satoshi@700,900');
+        
+        body { font-family: 'Plus Jakarta Sans', sans-serif; }
+        .gradient-sky { background: linear-gradient(180deg, #E8F4FF 0%, #F5F9FF 50%, #FFFFFF 100%); }
+        .mountain-bg { position: fixed; bottom: 0; left: 0; right: 0; height: 200px; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1440 320'%3E%3Cpath fill='%23E8F4FF' fill-opacity='0.6' d='M0,224L48,213.3C96,203,192,181,288,181.3C384,181,480,203,576,224C672,245,768,267,864,250.7C960,235,1056,181,1152,165.3C1248,149,1344,171,1392,181.3L1440,192L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z'%3E%3C/path%3E%3C/svg%3E"); background-size: cover; background-position: bottom; pointer-events: none; }
+        
+        .success-animation { animation: successPop 0.8s cubic-bezier(0.68, -0.55, 0.265, 1.55); }
+        @keyframes successPop { 0% { transform: scale(0); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+        
+        .checkmark { stroke-dasharray: 100; stroke-dashoffset: 100; animation: drawCheck 1s 0.4s forwards ease-in-out; }
+        @keyframes drawCheck { to { stroke-dashoffset: 0; } }
+        
+        .glow-ring { animation: glowPulse 2s ease-in-out infinite; }
+        @keyframes glowPulse { 0%, 100% { box-shadow: 0 0 20px rgba(34, 197, 94, 0.4); } 50% { box-shadow: 0 0 40px rgba(34, 197, 94, 0.8); } }
+        
+        .info-card { background: linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(248,250,252,0.9) 100%); backdrop-filter: blur(20px); border-radius: 20px; padding: 28px; border: 1px solid rgba(255, 255, 255, 0.8); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.12); }
+        .info-row { display: flex; justify-content: space-between; align-items: center; padding: 18px 0; border-bottom: 1px solid #E9ECEF; }
+        .info-row:last-child { border-bottom: none; }
+        .info-label { font-size: 14px; color: #6B7280; font-weight: 500; }
+        .info-value { font-size: 16px; color: #1A1A1A; font-weight: 700; }
+        
+        .box-container { margin: 24px 0; }
+        .box-label { font-size: 14px; color: #6B7280; text-align: center; margin-bottom: 12px; font-weight: 500; }
+        .box-number { background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%); color: white; padding: 20px 28px; border-radius: 16px; font-size: 28px; font-weight: 900; letter-spacing: 3px; text-align: center; box-shadow: 0 8px 24px rgba(37, 99, 235, 0.4); position: relative; overflow: hidden; }
+        .box-number::before { content: ''; position: absolute; top: 0; left: -100%; width: 100%; height: 100%; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent); animation: shimmer 3s infinite; }
+        @keyframes shimmer { 100% { left: 100%; } }
+        
+        .welcome-text { font-size: 32px; font-weight: 900; background: linear-gradient(135deg, #22C55E 0%, #16A34A 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; margin-bottom: 4px; text-shadow: 0 2px 10px rgba(34, 197, 94, 0.2); }
+        .user-name { font-size: 24px; font-weight: 700; color: #1A1A1A; margin-bottom: 28px; }
+        
+        .auth-type-badge { display: inline-block; padding: 8px 16px; background: linear-gradient(135deg, rgba(37, 99, 235, 0.1) 0%, rgba(37, 99, 235, 0.05) 100%); color: #2563EB; border-radius: 8px; font-size: 14px; font-weight: 700; border: 1px solid rgba(37, 99, 235, 0.2); }
+        
+        .confetti { position: fixed; width: 10px; height: 10px; background: #22C55E; animation: fall 3s linear forwards; opacity: 0; }
+        @keyframes fall { 0% { transform: translateY(-100vh) rotate(0deg); opacity: 1; } 100% { transform: translateY(100vh) rotate(720deg); opacity: 0; } }
+        
+        * { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+    </style>
+</head>
+<body class="gradient-sky min-h-screen flex flex-col">
+    <div class="mountain-bg"></div>
+    
+    <header class="w-full py-6 px-8">
+        <div class="max-w-5xl mx-auto text-center">
+            <h1 class="text-2xl font-black text-gray-700" style="font-family: 'Satoshi', sans-serif;">诺亚保管库</h1>
+        </div>
+    </header>
+
+    <main class="flex-1 flex items-center justify-center p-6">
+        <div class="w-full max-w-lg">
+            <div class="bg-white rounded-3xl shadow-2xl border border-gray-100 p-10 md:p-12 glow-ring">
+                
+                <!-- 成功动画图标 -->
+                <div class="success-animation mb-8">
+                    <svg class="w-32 h-32 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <circle cx="12" cy="12" r="11" stroke="#22C55E" stroke-width="1.5" fill="rgba(34, 197, 94, 0.05)"/>
+                        <circle cx="12" cy="12" r="6" fill="rgba(34, 197, 94, 0.1)"/>
+                        <path class="checkmark" stroke="#22C55E" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" d="M8 12l2.5 2.5L15.5 9"/>
+                    </svg>
+                </div>
+                
+                <!-- 欢迎语 -->
+                <div class="text-center mb-8">
+                    <div class="welcome-text" id="welcomeText">验证成功</div>
+                    <div class="user-name" id="userName">张三先生</div>
+                </div>
+                
+                <!-- 用户信息卡片 -->
+                <div class="info-card mb-6">
+                    <div class="info-row">
+                        <span class="info-label">客户名称</span>
+                        <span class="info-value" id="customerName">张三</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">认证方式</span>
+                        <span class="info-value" id="authType"><span class="auth-type-badge">虹膜 + 掌纹</span></span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">认证时间</span>
+                        <span class="info-value" id="authTime">2026-03-19 16:39</span>
+                    </div>
+                </div>
+                
+                <!-- 箱号展示 -->
+                <div class="box-container">
+                    <div class="box-label">📦 您的箱号</div>
+                    <div class="box-number" id="boxNumber">rc10|rc20|rc225</div>
+                </div>
+                
+                <!-- 提示信息 -->
+                <p class="text-center text-sm text-gray-500 mt-6">
+                    请前往对应箱号位置办理业务
+                </p>
+                
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // 模拟 IAMS 协议下发的用户数据
+        const iamsData = {
+            personId: "4304081998239940",
+            personType: "n",
+            showInfo: ["验证成功", "张三先生"],
+            authModel: 2,
+            authTypeList: "7,8",
+            boxList: "rc10|rc20|rc225"
+        };
+        
+        // 认证类型映射
+        const authTypeMap = {
+            '1': '人脸', '2': '卡号', '5': '密码', '7': '虹膜', '8': '掌纹', '9': '胁迫码'
+        };
+        
+        // 格式化认证类型
+        function formatAuthType(authTypeList) {
+            const types = authTypeList.split(',').map(t => authTypeMap[t] || t);
+            return types.join(' + ');
+        }
+        
+        // 格式化认证时间
+        function formatAuthTime() {
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const day = String(now.getDate()).padStart(2, '0');
+            const hours = String(now.getHours()).padStart(2, '0');
+            const minutes = String(now.getMinutes()).padStart(2, '0');
+            return `${year}-${month}-${day} ${hours}:${minutes}`;
+        }
+        
+        // 创建彩带效果
+        function createConfetti() {
+            const colors = ['#22C55E', '#2563EB', '#F59E0B', '#EF4444', '#8B5CF6'];
+            for (let i = 0; i < 30; i++) {
+                setTimeout(() => {
+                    const confetti = document.createElement('div');
+                    confetti.className = 'confetti';
+                    confetti.style.left = Math.random() * 100 + 'vw';
+                    confetti.style.background = colors[Math.floor(Math.random() * colors.length)];
+                    confetti.style.animationDuration = (Math.random() * 2 + 2) + 's';
+                    document.body.appendChild(confetti);
+                    setTimeout(() => confetti.remove(), 4000);
+                }, i * 100);
+            }
+        }
+        
+        // 填充数据
+        function fillUserData() {
+            // 欢迎语（从 showInfo 获取）
+            const welcomeLine1 = iamsData.showInfo[0] || '验证成功';
+            const welcomeLine2 = iamsData.showInfo[1] || '';
+            document.getElementById('welcomeText').textContent = welcomeLine1;
+            document.getElementById('userName').textContent = welcomeLine2;
+            document.getElementById('customerName').textContent = welcomeLine2.replace('先生', '').replace('女士', '');
+            
+            // 认证方式
+            document.getElementById('authType').innerHTML = `<span class="auth-type-badge">${formatAuthType(iamsData.authTypeList)}</span>`;
+            
+            // 认证时间
+            document.getElementById('authTime').textContent = formatAuthTime();
+            
+            // 箱号（完整显示，用 | 分隔）
+            document.getElementById('boxNumber').textContent = iamsData.boxList;
+            
+            // 播放彩带效果
+            createConfetti();
+        }
+        
+        window.addEventListener('DOMContentLoaded', fillUserData);
+    </script>
+</body>
+</html>

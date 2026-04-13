@@ -1,0 +1,20 @@
+[
+  {
+    "cardType": 0,
+    "createTime": 1773236811185,
+    "faceImageName": "9c277a5dc690f2dcd399c2ccbf4842cc",
+    "featureType": 3,
+    "forbidden": false,
+    "id": 4,
+    "name": "ces",
+    "openDoor": true,
+    "purview": 30,
+    "purviewEndTime": 0,
+    "purviewStartTime": 0,
+    "remoteId": "PERSON_1773236811580",
+    "staffNum": "123",
+    "staffNumDec": "3971",
+    "state": 1,
+    "temperature": 0.0
+  }
+]

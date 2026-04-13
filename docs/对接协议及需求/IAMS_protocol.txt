@@ -1,0 +1,632 @@
+协议
+概述
+mqtt服务器信息
+Ip: 101.43.60.150
+端口: 1883
+用户名:test-hy
+密码:hy123!@#
+通讯方式
+设备使用mqtt协议与管理平台进行对接,mqtt服务器地址,端口,用于连接的用户名,密码,等信息,将于设备初始化时写入,当设备进行首次成功上报状态时,管理平台认为该设备在线
+协议整体设计
+主题(Topic)
+
+平台-->设备
+sys/face/设备唯一id/down/业务             
+设备-->平台
+sys/face/设备唯一id/up/业务
+
+通用消息体(json)
+Request:
+JSON
+{
+    "time":1705371902981,            //long//消息发起时间戳  
+    "requestId":"1705371902981",     //String//请求唯一id,每次请求随机生成,不允许直接将时间作为requestid
+    "deviceId":"td34jc93",           //String//设备唯一id
+    "op":"",                         //String//业务类型
+    "data":{}                        //协议内容对象
+}
+Response:
+JSON
+{
+    "time":1705371902981,            //long//消息发起时间戳  
+    "requestId":"1705371902981",     //String//请求唯一id,每次请求随机生成,不允许直接将时间作为requestid
+    "deviceId":"td34jc93",           //String//设备唯一id
+    "op":"",                         //String//业务类型
+    "data":{
+        "code":200,    //int//错误码,200为成功,其他错误码根据每个业务定义
+        "msg":""       //String//错误信息
+     }                        
+}
+
+
+功能详细设计
+1. mqtt设备连接说明
+设备应为如下信息提供配置入口:
+1.mqtt服务器地址,端口
+2.mqtt服务器连接账户密码
+设备需要内置有唯一识别码,该识别码不会与其他设备重复,且设备重置后,该设备码不变
+设备以自身唯一设备码,作为clientId,连入mqtt服务器
+3.设备唯一id,仅支持 数字大小写字母和减号,其他特殊符号会被系统过滤导致无法上报
+2. 上报状态
+说明:设备每10秒进行一次状态上报
+主题:sys/face/设备唯一id/up/report-status
+Request:
+JSON
+{
+    "time":1705371902981,            //long//消息发起时间戳  
+    "requestId":"1705371902981",     //String//请求唯一id,每次请求随机生成
+    "deviceId":"td34jc93",           //String//设备唯一id
+    "op":"report-status",                 //String//业务类型
+    "data":{
+        "deviceId":"td34jc93",               //String//设备唯一识别码
+        "deviceTime":1705371902981,          //long//设备当前时间戳(毫秒)
+        "ip":"192.168.1.1"                   //String//设备当前ip
+        "passportVer":"td34jc9317053719"     //String//凭证库版本号
+        "model": 1,                          //int//识别模式 1.单凭证认证 2.组合认证
+        "doorModel": 1,                      //int//门禁模式 1.自动, 2.常开, 3.常闭
+        "passRulerList":[1,2,3,4],           //Array[Int]//通行规则id列表
+        "warnRulerList":[1,2,3,4]            //Array[Int]//通知警示规则id列表
+    }
+}
+Response:
+平台服务无需回复
+3. 凭证同步
+平台服务向设备发送凭证,包含三种操作类型
+￮新增凭证
+包含完整的凭证信息以及其属性
+￮删除凭证
+仅包含凭证id
+￮更新凭证信息
+仅包含凭证的属性,不包含凭证内容
+
+每个凭证id唯一对应一个凭证内容
+每次执行凭证操作,设备需要校验凭证库版本号与当前设备上存的版本号是否相同,不相同时,不执行操作,并返回异常
+
+3.1新增凭证
+主题:sys/face/设备唯一id/down/passport-add
+JSON
+{
+    "time":1705371902981,            //long//消息发起时间戳  
+    "requestId":"1705371902981",     //String//请求唯一id,每次请求随机生成
+    "deviceId":"td34jc93",           //String//设备唯一id
+    "op":"passport-add",             //String//业务类型
+    "data":{
+        "opId":"1",                    //string//操作id,设备无需处理,于执行完毕后返回即可
+        "passportVer":"td34jc9317053719",     //String//凭证库版本号
+        "personId":"1abc2",              //string//人员id,用于识别同一个人的多个凭证
+        "personType":"v",                //string//人员类型: "n" 普通人员 "v" 访客
+        "id":998,                       //long//凭证唯一id
+        "type":1,                       //int//识别类型: 1.人脸,2.卡号
+        "content":"",                   //String//凭证内容,人脸,为base64图片
+        "showInfo":["欢迎","xx先生"],    //String//鉴权成功时,屏幕展示文本,一般为欢迎信息
+                                                //该字段为字符串数组,每个字符串显示为独立一行
+                                                //设备应至少支持显示2行,每行至少支持展示5个中文
+        "tags":[1,2,3],                 //Array[Int]//凭证拥有的标签id
+        "startTime":1705371902981,      //long//有效期开始, 可以为空,代表实时生效
+        "endTime":1705371902981,        //long//有效期结束, 可以为空,代表一直有效
+        "enable":1,                     //int//1.启用 2.禁用
+    }
+}
+3.2删除凭证
+主题:sys/face/设备唯一id/down/passport-del
+JSON
+{
+    "time":1705371902981,            //long//消息发起时间戳  
+    "requestId":"1705371902981",     //String//请求唯一id,每次请求随机生成
+    "deviceId":"td34jc93",           //String//设备唯一id
+    "op":"passport-del",                 //String//业务类型
+    "data":{
+        "passportVer":"td34jc9317053719"     //String//凭证库版本号
+        "opId":"1",                    //string//操作id,设备无需处理,于执行完毕后返回即可
+        "id":998,                    //long//凭证唯一id
+        "personType":"n"
+    }
+}
+3.3更新凭证信息
+主题:sys/face/设备唯一id/down/passport-update
+ 说明:更新不会包含凭证内容,所以不包含凭证内容信息,只更新凭证的属性信息
+JSON
+{
+    "time":1705371902981,            //long//消息发起时间戳  
+    "requestId":"1705371902981",     //String//请求唯一id,每次请求随机生成
+    "deviceId":"td34jc93",           //String//设备唯一id
+    "op":"passport-update",                 //String//业务类型
+    "data":{
+        "passportVer":"td34jc9317053719"     //String//凭证库版本号
+        "opId":"1",                    //string//操作id,设备无需处理,于执行完毕后返回即可
+        "personId":"1abc2"              //string//人员id,用于识别同一个人的多个凭证
+        "personType":"v",                //string//人员类型: "n" 普通人员 "v" 访客
+        "id":998,                      //long//凭证唯一id
+        "type":1,                      //int//识别类型: 1.人脸,2.卡号
+        "showInfo":["xx先生",""],      //String//鉴权成功时,屏幕展示文本,一般为欢迎信息
+        "tags":[1,2,3],                //Array[Int]//凭证拥有的标签id
+        "startTime":1705371902981,     //long//有效期开始, 可以为空,代表实时生效
+        "endTime":1705371902981,       //long//有效期结束, 可以为空,代表一直有效
+        "enable":1,                    //int//1.启用 2.禁用
+    }
+}
+Response
+主题:sys/face/设备唯一id/up/passport-add
+主题:sys/face/设备唯一id/up/passport-del
+主题:sys/face/设备唯一id/up/passport-update
+JSON
+{
+    "time":1705371902981,            //long//消息发起时间戳  
+    "requestId":"1705371902981",     //String//请求唯一id,每次请求随机生成
+    "deviceId":"td34jc93",           //String//设备唯一id
+    "op":"passport-add",                 //String//业务类型
+    "data":{
+        "code":200,                        //int//错误码,200为成功
+        "msg":"错误信息"                    //string//错误信息
+        "passportVer":"td34jc9317053719"   //String//凭证库版本号
+        "opId":"1",                        //string//操作id,设备无需处理,于执行完毕后返回即可
+        "personType":"v",                //string//人员类型: "n" 普通人员 "v" 访客
+    }
+}
+错误码列表:
+401 凭证不符合规范(无人脸,图片过大,图片无法识别,图片包含多张人脸)
+402 系统错误
+403 凭证库版本号不符,不执行操作
+404 凭证不存在
+405 凭证已经存在
+406 设备凭证库容量已达上限(3000)  !!!括号这里是设备当前容量上限数,设备根据实际填写
+407 设备不支持该类型凭证     //此错误仅应用于<新增凭证>接口,由于部分设备不具备人脸识别功能
+                                            ,不支持人脸的设备在添加人脸凭证时,可以返回该错误码,平台接收该                                              错误码后,视为添加成功,后续<更新凭证><删除凭证>时,正常返回
+                                             凭证不存在的错误即可
+
+
+4. 重置凭证库
+清空本设备的所有凭证,将本设备属性的passportVersion 设置为空字符串
+需要确保已经清空本机凭证库,再最后清空版本号,如清除时间过长,服务器会再次下发指令,设备需做好重复接收命令的处理
+1.已经清空,接收到清空命令,反馈操作成功
+2.正在清空中,接收到清空命令,忽略该命令
+主题:sys/face/设备唯一id/down/reset-passport
+Request:
+JSON
+{
+    "time":1705371902981,            //long//消息发起时间戳  
+    "requestId":"1705371902981",     //String//请求唯一id,每次请求随机生成
+    "deviceId":"td34jc93",           //String//设备唯一id
+    "op":"reset-passport",                 //String//业务类型
+    "data":{
+        "type":"passport"                  //String//业务子类型,当前只会有这一个
+    }
+}
+主题:sys/face/设备唯一id/up/reset-passport
+Response
+JSON
+{
+    "time":1705371902981,            //long//消息发起时间戳  
+    "requestId":"1705371902981",     //String//请求唯一id,每次请求随机生成
+    "deviceId":"td34jc93",           //String//设备唯一id
+    "op":"reset-passport",                 //String//业务类型
+    "data":{
+            "code":200,              //int//错误码 200为成功
+            "msg":"错误信息",
+            "result":{                //操作成功后,需要从数据库中查询出来当前版本号,确保更改成功
+                "passportVer":""
+            }
+    }
+}
+错误码列表:
+402 系统错误
+5. 设备配置同步
+平台对设备的配置进行修改,在一次请求中可以包含多个属性,也可以只包含一个属性
+操作类型一共包含三个: 1.增加 2.删除 3.设置(即直接覆盖配置项内容)
+单属性类的只支持<设置>操作即可,增加和删除操作是列表类的属性才需要支持
+
+5.1增加配置项(仅列表类)
+主题:sys/face/设备唯一id/down/attr-add
+Request:
+JSON
+{
+    "time":1705371902981,            //long//消息发起时间戳  
+    "requestId":"1705371902981",     //String//请求唯一id,每次请求随机生成
+    "deviceId":"td34jc93",           //String//设备唯一id
+    "op":"attr-add",                 //String//业务类型
+    "data":{
+        "passRulerList":[],          //列表类配置项,增加会有完整的配置项内容,例如通行规则是完整的规则内容对象
+    }
+}
+
+5.2删除配置项(仅列表类)
+     主题:sys/face/设备唯一id/down/attr-del
+Request
+JSON
+{
+    "time":1705371902981,            //long//消息发起时间戳  
+    "requestId":"1705371902981",     //String//请求唯一id,每次请求随机生成
+    "deviceId":"td34jc93",           //String//设备唯一id
+    "op":"attr-del",                 //String//业务类型
+    "data":{  
+        "passRulerList":[1,2,3]          //列表类配置项,删除仅有id
+    }
+}
+
+5.3设置配置项
+说明:直接覆盖目标项
+目前可以进行设置的项有:
+JSON
+"deviceTime":1705371902981,          //long//设备当前时间戳(毫秒)
+"passportVer":"td34jc9317053719"     //String//凭证库版本号
+"model": 1,                          //int//识别模式 1.单凭证认证 2.组合认证
+"doorModel": 1,                      //int//门禁模式 1.自动, 2.常开, 3.常闭
+"passRulerList":,//设置通行规则时,会传完整的数据结构,而不仅仅是id,见5.4.1
+"warnRulerList": //通知警示规则时,会传完整的数据结构,而不仅仅是id,见5.4.2
+主题:sys/face/设备唯一id/down/attr-set
+Request
+单次请求可以只设置一个属性,也可以设置多个属性,如下是多个属性的情况
+JSON
+{
+    "time":1705371902981,            //long//消息发起时间戳  
+    "requestId":"1705371902981",     //String//请求唯一id,每次请求随机生成
+    "deviceId":"td34jc93",           //String//设备唯一id
+    "op":"attr-set",                 //String//业务类型
+    "data":{  
+        "deviceTime":1705371902981,  //所有可配置项,可以有多个,数据类型参考上报状态接口参数
+        "model":1,
+        "passRulerList":[]
+    }                        
+}
+
+Response
+多个属性同时在一个请求里设置时,只要有失败的,最终反馈结果记为失败,失败的项错误原因写入msg,多个项失败的错误信息进行字符串拼接,写入msg,主要作用是后续用于排查问题
+设置成功的,就成功了,不回退
+返回的result结构体中的数据,是根据request中设置的属性数量返回的,例如只请求了passportVer字段的设置,那么返回时,的result中应只包含最新的passportVer字段内容,不要包含其他字段内容
+主题:sys/face/设备唯一id/up/attr-add
+主题:sys/face/设备唯一id/up/attr-del
+主题:sys/face/设备唯一id/up/attr-set
+JSON
+{
+    "time":1705371902981,            //long//消息发起时间戳  
+    "requestId":"1705371902981",     //String//请求唯一id,每次请求随机生成
+    "deviceId":"td34jc93",           //String//设备唯一id
+    "op":"attr-set",                 //String//业务类型
+    "data":{
+            "code":200,              //int//错误码 200为成功
+            "msg":"错误信息",
+            "result":{                //操作完成后,需要从设备属性中查询出来当前最新属性值,确保更改成功
+                "passportVer":"",
+                "model":1
+                "passRulerList":[1,2,3,4]    //列表类的属性,只查询id列表即可
+            }
+    }
+}
+错误码:400 有任意属性设置失败,返回错误码400
+消息内容:内容为错误属性的属性名和错误原因,多个属性则直接拼接,逗号分隔即可
+单个的情况例如: 属性passRulerList设置失败,id:3的规则内容不合法
+多个的情况例如: 属性passRulerList设置失败,id:3的规则内容不合法,属性passportVer设置失败,属性字符数量超长
+5.4列表类属性
+5.4.1通行规则
+每个规则id对应唯一个规则,不存在修改规则内容的情况
+JSON
+{
+    "time":1705371902981,            //long//消息发起时间戳  
+    "requestId":"1705371902981",     //String//请求唯一id,每次请求随机生成
+    "deviceId":"td34jc93",           //String//设备唯一id
+    "op":"attr-set",                 //String//业务类型
+    "data":{  
+        "passRulerList":[
+            {
+                "id":1,                  //int//规则id
+                "name":"规则名称",        //string//规则名称,设备仅存储
+                "remark":"规则备注信息",  //string//规则备注,用于拒绝用户时,展示在屏幕中
+                "ruleType":1,            //int//规则类型:1.仅允许 2.禁止
+                "tagIds":[1,2,3,4],       //Array[int]//受此规则影响的标签 id,有-1, -1被定义为所有标签
+                "tagIdsExclude":[1,2,3,4],//Array[int]//排除在外的标签 id,不会有-1
+                "ruleDetailType":"year",    //string//规则详情类型,定义见下表
+                "ruleDetail":["2023","2024"],    //Array[String]//规则详情内容,定义见下表
+                "personType":"v",                //string//人员类型: "n" 普通人员 "v" 访客                                       
+            },
+            {
+                //此处省略多个规则对象
+            }
+        ]
+    }                        
+}
+
+规则类型与规则详情
+
+规则类型: "year"                       //指定年份
+规则内容:["2023"]                       //指定的年份(单个的情况)
+规则内容:["2023","2024","2025"]        //指定的年份(多个的情况),一条规则内的多个年份,为或的关系,只要有一个匹配,就算匹配该条规则
+
+规则类型: "cron"                        //周期
+规则内容:["* * * * 1"]                  //周期表达式(单个的情况)
+规则内容:["* * * * 1","2 * * * 1","3 * * * 1"]        //周期表达式(多个的情况),一条规则内的多个周期,为或的关系,只要有一个匹配,就算匹配该条规则
+
+规则类型: "day"                       //指定日期,只有日期,不会包含年份
+规则内容:["08-19"]                     //指定的日期(单个的情况)
+规则内容:["05-06","08-19"]            //指定的日期(多个的情况),一条规则内的多个日期,为或的关系,只要有一个匹配,就算匹配该条规则
+
+规则类型: "timescope"                       //指定时间范围,默认为当天的时间段,不考虑日期因素
+规则内容:["11:06:55-11:07:03"]             //指定的时间范围(单个的情况)
+规则内容:["11:06:55-11:07:03","12:07:12-18:07:03"]        //指定的时间范围(多个的情况),一条规则内的多个时间段,为或的关系,只要有一个匹配,就算匹配该条规则
+
+规则类型: "count"                       //一个凭证在本设备通行的次数
+规则内容:["1"]                       //指定的次数,只会有1个值
+5.4.2通知告警规则
+业务说明
+当一个凭证被识别,首先查询该凭证拥有的标签,然后查询这些标签能匹配到的规则,当一条规则被匹配到就根据规则的配置进行发送相应的通知信息,和告警信息
+信息内容被定义为
+触发动作字段的明文,即: 
+•被识别
+•被拒绝
+•通行
+JSON
+{
+    "time":1705371902981,            //long//消息发起时间戳  
+    "requestId":"1705371902981",     //String//请求唯一id,每次请求随机生成
+    "deviceId":"td34jc93",           //String//设备唯一id
+    "op":"attr-set",                 //String//业务类型
+    "data":{  
+        "warnRulerList":[
+            {
+                "id":1,                    //int//规则id
+                "name":"规则名称",          //string//规则名称,设备仅做存储
+                "triggerAction":1,         //int//触发动作: 1.被识别 2.被拒绝 3.通行
+                "tagIds":[1,2,3,4],        //Array[int]//受此规则影响的标签 id, 会有-1, -1被定义为所有标签
+                "tagIdsExclude":[1,2,3,4]  //Array[int]//排除在外的标签 id，不会有-1
+                "informEnable":1,          //int//通知开关 1.开启 2.关闭
+                "warnEnable":1,            //int//告警开关 1.开启 2.关闭
+                "warnLevel":1              //int//告警等级: 数字 1-4, 4为最高等级
+                "personType":"v",                //string//人员类型: "n" 普通人员 "v" 访客
+            },
+            {
+                //此处省略多条规则
+            }
+        ]
+    }                        
+}
+
+6. 上报日志/事件
+6.1上报通行日志
+为了日志不丢失,设备应对日志进行如下处理
+1.实时通行的日志正常发送,未收到平台服务反馈的,标记为未发送状态
+2.每10秒对未收到平台服务反馈的日志进行补发,但一次只补发一条
+主题:sys/face/设备唯一id/up/pass-log
+Request:
+JSON
+{
+    "time":1705371902981,            //long//消息发起时间戳  
+    "requestId":"1705371902981",     //String//请求唯一id,每次请求随机生成
+    "deviceId":"td34jc93",           //String//设备唯一id
+    "op":"pass-log",                 //String//业务类型
+    "data":{
+        "id":1,                      //long//日志id,这里是设备自己的日志id
+        "time":1705371902981,        //time//通行时间,时间戳(毫秒)
+        "passportId":1,              //long//凭证id,未识别到正确凭证的场景,可以填-1
+        
+        "passportContent":"",        //string//凭证内容,非生物识别凭证的内容,
+                                     //例如卡号,遇到未识别的卡号,可以只填内容字段,
+                                     //凭证id字段填写-1
+                                     
+         "authType":1,               //int//认证类型:，1:刷脸，2:刷卡，3:刷二维码，4:身份证，5: 密码，6:指纹
+         "authResult":1,             //int//认证结果，1:成功，2:失败
+         "failType":1,               //int//失败类型 0:认证成功，
+                                       //  其他值:失败原因，
+                                       //  1:凭证未注册（未注 册人脸、未授权卡号、密码错误等），
+                                       //  2:凭证失效或禁用，
+                                       //  3:不满足通行规则，
+                                       //  4:远程鉴权拒绝通行，
+                                       //  5:远程鉴权超时，
+                                       //  6:当前禁止通行
+                                       
+         "failMsg":"失败详情",          //String//失败详情,根据失败类型进行填充
+                                       //   失败类型 0: 不填写失败详情                    
+                                       //   失败类型 1: 凭证未注册 
+                                       //   失败类型 2: 凭证失效或禁用 
+                                       //   失败类型 3: 通行规则限制,{通行规则id},{通行规则名称} 
+                                       //        示例:  通行规则限制,1,工作日规则
+                                       
+                                       //   失败类型 4: 全局策略限制,{全局策略id},{全局策略名称}
+                                       //        示例:  全局策略限制,98,防重入规则
+                                       
+                                       //   失败类型 5: 全局策略网络超时,{全局策略id},{全局策略名称} 
+                                       //        示例:  全局策略网络超时,88,防重入规则
+                                       
+                                       //   失败类型 6: 当前禁止通行
+                                       
+          "similarity":"85.5",         //string// 生物识别（如人脸识别）时的相似度
+          "threshold":"70",            //string// 生物识别（如人脸识别）的阈值 
+          "capturedImg":"xxxxx",       //string// base64编码的抓拍照片 jpg
+          "personName":"xxx"           //string// 身份证验证时读取的人员姓名
+    }                        
+}
+Response
+主题:sys/face/设备唯一id/down/pass-log
+JSON
+{
+    "time":1705371902981,            //long//消息发起时间戳  
+    "requestId":"1705371902981",     //String//请求唯一id,每次请求随机生成
+    "deviceId":"td34jc93",           //String//设备唯一id
+    "op":"pass-log",                 //String//业务类型
+    "data":{
+            "id":1,                  //long//日志id,这里是设备上报日志时,传来的日志id
+            "code":200,              //int//错误码 200为成功
+            "msg":"错误信息"
+    }
+}
+6.2上报告警事件
+主题:sys/face/设备唯一id/up/warn-event
+JSON
+{
+    "time":1705371902981,            //long//消息发起时间戳  
+    "requestId":"1705371902981",     //String//请求唯一id,每次请求随机生成
+    "deviceId":"td34jc93",           //String//设备唯一id
+    "op":"warn-event",                         //String//业务类型
+    "data":{  
+        "warnType":1,                   //int// 报警信息类型: 预规划，目前都填 1 
+        "passportId":1,                 //long// 凭证id 
+        "createTime":1705371902981,     //long// 信息产生的时间,时间戳(毫秒) 
+        "warnLevel":1,                  //int// 报警等级 1-4 
+        "warnEventId":1,                //int//报警事件 id ,目前填1
+        "warnContent":"示例警示信息"     //string//告警信息内容
+    }                        
+}
+6.3上报通知事件
+主题:sys/face/设备唯一id/up/notify-event
+JSON
+{
+    "time":1705371902981,            //long//消息发起时间戳  
+    "requestId":"1705371902981",     //String//请求唯一id,每次请求随机生成
+    "deviceId":"td34jc93",           //String//设备唯一id
+    "op":"notify-event",             //String//业务类型
+    "data":{  
+        "bizType":2,                 //int// 当前填2,业务类型: 1.设备信息 2.人员信息,  
+        "passportId":1,              //long// 凭证id 
+        "createTime":1705371902981,  //long// 设备生产该信息的时间,时间戳(毫秒) 
+        "eventId":1,                 //int// 事件 id，预规划，目前都填 1 
+        "eventContent":"示例信息"     //String// 消息内容
+    }
+}
+7. 设备控制
+说明:平台对设备下发实时命令
+主题:sys/face/设备唯一id/down/cmd
+Request:
+JSON
+{
+    "time":1705371902981,            //long//消息发起时间戳  
+    "requestId":"1705371902981",     //String//请求唯一id,每次请求随机生成
+    "deviceId":"td34jc93",           //String//设备唯一id
+    "op":"cmd",                         //String//业务类型
+    "data":{  
+        "taskId":"65643543"            //任务id
+        "type":"open",                 //open开门
+    }
+}
+主题:sys/face/设备唯一id/up/cmd
+Response:
+JSON
+{
+    "time":1705371902981,            //long//消息发起时间戳  
+    "requestId":"1705371902981",     //String//请求唯一id,每次请求随机生成
+    "deviceId":"td34jc93",           //String//设备唯一id
+    "op":"cmd",                         //String//业务类型
+    "data":{  
+          "taskId":"65643543",        //string//任务id
+          "code":200,                 //int//错误码 200为成功 402,系统错误
+          "msg":""                    //string//错误信息
+    }                        
+}
+
+8. 访客相关
+8.1 定时删除访客用户
+功能描述:
+设备应可以每日删除已经过期的访客类用户凭证
+功能设计:
+设备每日0点,对当前设备上如下条件的凭证进行删除
+1.凭证属性 "personType":"v",   //string//人员类型: "n" 普通人员 "v" 访客
+2.凭证的有效期  "endTime":1705371902981, 已经超过当前时间, 即已过期,但是注意会有此字段为空的凭证,意义为无限期凭证,那么不用在此删除
+
+
+
+剩余:
+全局策略
+平台-> 设备
+JSON
+{
+    "time":1705371902981,            //long//消息发起时间戳  
+    "requestId":"1705371902981",     //String//请求唯一id,每次请求随机生成
+    "deviceId":"td34jc93",           //String//设备唯一id
+    "op":"attr-set",                 //String//业务类型
+    "data":{  
+        "passRulerList":[
+            {
+                "id":1,                  //int//规则id
+                "name":"规则名称",        //string//规则名称,设备仅存储
+                "remark":"规则备注信息",  //string//规则备注,用于拒绝用户时,展示在屏幕中
+                "tagIds":[1,2,3,4],       //Array[int]//受此规则影响的标签 id,有-1, -1被定义为所有标签
+                "tagIdsExclude":[1,2,3,4],//Array[int]//排除在外的标签 id,不会有-1
+                "ruleDetailType":"year",    //string//规则详情类型,定义见下表
+                "ruleDetail":"2023&2024"    //String//规则详情内容,定义见下表
+                "personType":"v",                //string//人员类型: "n" 普通人员 "v" 访客                                       
+            },
+            {
+                //此处省略多个规则对象
+            }
+        ]
+    }                        
+}
+设备->平台
+凭证id
+触发策略id
+任务id
+
+平台->设备
+任务id
+凭证id
+操作结果: 1.通行 2.拒绝
+提示信息: "拒绝通行"
+
+设备->平台
+任务id
+凭证id
+Code:200
+msg:""
+
+门禁计划
+Cron: -1 为每天 其他为指定
+Time: 12:00:00  Action: 1.常开
+Time: 13:00:00 action:2.常闭
+Time: 14:00:00 action: 3.自动
+组合认证
+
+
+
+
+
+
+
+IAMS基础协议更新(诺亚修改)
+由于诺亚项目的特殊业务，我们需要在IAMS的基础mqtt协议里增加字段，以供认证终端识读，获取用户的多重认证方式，和胁迫码功能
+业务处理建议
+对于认证终端的开发建议，首先通过personId，查找到该用户的所有凭证。然后从任意一个凭证中获取信息，"authModel"表明是否多重认证，"authTypeList"，表明具体有哪些被用户指定的认证方式。其中胁迫码并没有另外做参数，直接在"authTypeList"里面看有没有类型9,就相当于开启了胁迫码。
+3.1新增凭证
+主题:sys/face/设备唯一id/down/passport-add
+{
+    "time":1705371902981,            //long//消息发起时间戳  
+    "requestId":"1705371902981",     //String//请求唯一id,每次请求随机生成
+    "deviceId":"td34jc93",           //String//设备唯一id
+    "op":"passport-add",             //String//业务类型
+    "data":{
+        "opId":"1",                    //string//操作id,设备无需处理,于执行完毕后返回即可
+        "passportVer":"td34jc9317053719",     //String//凭证库版本号        "personId":"4304081998239940",   //string//人员身份唯一id
+        "personType":"v",                //string//人员类型: "n" 普通人员 "v" 访客
+        "id":998,                       //long//凭证唯一id
+        "type":1,                       //int//识别类型: 1.人脸,2.卡号
+        "content":"",                   //String//凭证内容,人脸,为base64图片
+        "showInfo":["欢迎","xx先生"],    //String//鉴权成功时,屏幕展示文本,一般为欢迎信息
+                                                //该字段为字符串数组,每个字符串显示为独立一行
+                                                //设备应至少支持显示2行,每行至少支持展示5个中文
+        "tags":[1,2,3],                 //Array[Int]//凭证拥有的标签id
+        "startTime":1705371902981,      //long//有效期开始, 可以为空,代表实时生效
+        "endTime":1705371902981,        //long//有效期结束, 可以为空,代表一直有效
+        "enable":1,                     //int//1.启用 2.禁用        "authModel":1,                  //int//识别模式:1.单凭证识别，2.多凭证组合识别        "authTypeList":"1,2,3",         //String//识别凭证类型列表:数据示例：1,2,3.                                        //类型枚举:1.人脸2.卡号5.密码7.虹膜 8.掌静纹 9.胁迫码
+        "boxList":"rc10|rc20|rc225"    //用户箱号列表：该用户持有的箱号，使用|分割。
+    }
+}
+  3.3更新凭证信息
+主题:sys/face/设备唯一id/down/passport-update
+   说明:更新不会包含凭证内容,所以不包含凭证内容信息,只更新凭证的属性信息
+{
+    "time":1705371902981,            //long//消息发起时间戳  
+    "requestId":"1705371902981",     //String//请求唯一id,每次请求随机生成
+    "deviceId":"td34jc93",           //String//设备唯一id
+    "op":"passport-update",                 //String//业务类型
+    "data":{
+        "passportVer":"td34jc9317053719"     //String//凭证库版本号
+        "opId":"1",                    //string//操作id,设备无需处理,于执行完毕后返回即可        "personId":"4304081998239940",   //string//人员身份唯一id
+        "personType":"v",                //string//人员类型: "n" 普通人员 "v" 访客
+        "id":998,                      //long//凭证唯一id
+        "type":1,                      //int//识别类型: 1.人脸,2.卡号
+        "showInfo":["xx先生",""],      //String//鉴权成功时,屏幕展示文本,一般为欢迎信息
+        "tags":[1,2,3],                //Array[Int]//凭证拥有的标签id
+        "startTime":1705371902981,     //long//有效期开始, 可以为空,代表实时生效
+        "endTime":1705371902981,       //long//有效期结束, 可以为空,代表一直有效
+        "enable":1,                    //int//1.启用 2.禁用
+        "authModel":1,                  //int//识别模式:1.单凭证识别，2.多凭证组合识别        "authTypeList":"1,2,3",         //String//识别凭证类型列表:数据示例：1,2,3.                                        //类型枚举:1.人脸2.卡号5.密码7.虹膜 8.掌静纹 9.胁迫码
+        "boxList":"rc10|rc20|rc225"    //用户箱号列表：该用户持有的箱号，使用|分割。
+    }
+}
+

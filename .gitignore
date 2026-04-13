@@ -45,7 +45,7 @@ next-env.d.ts
 
 # 数据目录（数据库、设置、日志等）
 /data
-
+/data/noah-ark.db
 # Electron
 /electron/node_modules
 /electron/dist
@@ -74,3 +74,7 @@ next-env.d.ts
 Thumbs.db
 ehthumbs.db
 Desktop.ini
+
+
+/skills
+.codepilot-uploads

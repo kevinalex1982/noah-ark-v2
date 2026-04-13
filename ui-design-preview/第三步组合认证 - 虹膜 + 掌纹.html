@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>诺亚保管库 - 组合认证（虹膜 + 掌纹）</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://api.fontshare.com/v2/css?f[]=satoshi@700,900');
+        body { font-family: 'Plus Jakarta Sans', sans-serif; }
+        .gradient-sky { background: linear-gradient(180deg, #E8F4FF 0%, #F5F9FF 50%, #FFFFFF 100%); }
+        .mountain-bg { position: fixed; bottom: 0; left: 0; right: 0; height: 200px; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1440 320'%3E%3Cpath fill='%23E8F4FF' fill-opacity='0.6' d='M0,224L48,213.3C96,203,192,181,288,181.3C384,181,480,203,576,224C672,245,768,267,864,250.7C960,235,1056,181,1152,165.3C1248,149,1344,171,1392,181.3L1440,192L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z'%3E%3C/path%3E%3C/svg%3E"); background-size: cover; background-position: bottom; pointer-events: none; }
+        .auth-item { display: flex; flex-direction: column; align-items: center; padding: 20px; border-radius: 16px; transition: all 0.3s ease; min-width: 140px; }
+        .auth-item.pending { background: rgba(255, 255, 255, 0.5); border: 2px solid #DEE2E6; }
+        .auth-item.active { background: rgba(59, 130, 246, 0.1); border: 2px solid #3B82F6; }
+        .auth-item.success { background: rgba(34, 197, 94, 0.1); border: 2px solid #22C55E; }
+        .auth-item.failure { background: rgba(239, 68, 68, 0.1); border: 2px solid #EF4444; }
+        .auth-icon { width: 64px; height: 64px; margin-bottom: 12px; display: flex; align-items: center; justify-content: center; }
+        .auth-icon.pending { color: #9CA3AF; } .auth-icon.active { color: #3B82F6; } .auth-icon.success { color: #22C55E; } .auth-icon.failure { color: #EF4444; }
+        .auth-status { font-size: 14px; font-weight: 600; text-align: center; }
+        .auth-status.pending { color: #9CA3AF; } .auth-status.active { color: #3B82F6; } .auth-status.success { color: #22C55E; } .auth-status.failure { color: #EF4444; }
+        .iris-scanner { position: relative; width: 140px; height: 140px; margin: 0 auto 20px; }
+        .iris-icon { width: 100px; height: 100px; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); }
+        .scanner-ring { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); border: 3px dashed #3B82F6; border-radius: 50%; animation: rotate 3s linear infinite; }
+        .scanner-ring-outer { width: 140px; height: 140px; } .scanner-ring-inner { width: 110px; height: 110px; animation-direction: reverse; animation-duration: 2s; }
+        @keyframes rotate { from { transform: translate(-50%, -50%) rotate(0deg); } to { transform: translate(-50%, -50%) rotate(360deg); } }
+        .scan-line { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 2px; height: 70px; background: linear-gradient(180deg, transparent, #3B82F6, transparent); animation: scan 2s ease-in-out infinite; }
+        @keyframes scan { 0%, 100% { transform: translate(-50%, -50%) rotate(0deg); } 50% { transform: translate(-50%, -50%) rotate(180deg); } }
+        .pulse-ring { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); border: 2px solid #3B82F6; border-radius: 50%; opacity: 0; animation: pulse 2s ease-out infinite; }
+        .pulse-1 { width: 140px; height: 140px; animation-delay: 0s; } .pulse-2 { width: 140px; height: 140px; animation-delay: 0.5s; } .pulse-3 { width: 140px; height: 140px; animation-delay: 1s; }
+        @keyframes pulse { 0% { opacity: 0.6; transform: translate(-50%, -50%) scale(0.8); } 100% { opacity: 0; transform: translate(-50%, -50%) scale(1.3); } }
+        .palm-scanner { position: relative; width: 180px; height: 180px; margin: 0 auto 20px; }
+        .palm-icon { width: 120px; height: 120px; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); }
+        .scanner-frame { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); border: 3px dashed #3B82F6; border-radius: 24px; animation: framePulse 2s ease-in-out infinite; }
+        .scanner-frame-outer { width: 180px; height: 180px; } .scanner-frame-inner { width: 150px; height: 150px; animation-direction: reverse; animation-duration: 1.5s; }
+        @keyframes framePulse { 0%, 100% { opacity: 1; transform: translate(-50%, -50%) scale(1); } 50% { opacity: 0.6; transform: translate(-50%, -50%) scale(1.05); } }
+        .scan-beam { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 150px; height: 4px; background: linear-gradient(90deg, transparent, #3B82F6, transparent); border-radius: 2px; animation: scanBeam 1.5s ease-in-out infinite; }
+        @keyframes scanBeam { 0%, 100% { top: 30%; opacity: 0.8; } 50% { top: 70%; opacity: 1; } }
+        .palm-pulse-ring { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); border: 2px solid #3B82F6; border-radius: 24px; opacity: 0; animation: pulse 2s ease-out infinite; }
+        .palm-pulse-1 { width: 180px; height: 180px; animation-delay: 0s; } .palm-pulse-2 { width: 180px; height: 180px; animation-delay: 0.5s; } .palm-pulse-3 { width: 180px; height: 180px; animation-delay: 1s; }
+        .btn-start { padding: 14px 32px; background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%); color: white; border: none; border-radius: 12px; font-size: 16px; font-weight: 700; cursor: pointer; transition: all 0.3s ease; }
+        .btn-start:hover { background: linear-gradient(135deg, #1D4ED8 0%, #1E40AF 100%); transform: translateY(-2px); box-shadow: 0 8px 20px rgba(37, 99, 235, 0.3); }
+        .btn-start:active { transform: translateY(0); }
+        .test-buttons { position: fixed; bottom: 40px; left: 40px; display: flex; flex-direction: column; gap: 10px; }
+        .btn-test { padding: 10px 20px; background: #3B82F6; border: none; border-radius: 8px; color: white; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.3s ease; }
+        .btn-test:hover { background: #2563EB; transform: translateY(-1px); } .btn-test.fail { background: #EF4444; } .btn-test.fail:hover { background: #DC2626; }
+        .btn-cancel { position: fixed; bottom: 40px; right: 40px; padding: 12px 24px; background: transparent; border: 2px solid #DEE2E6; border-radius: 12px; color: #6B7280; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.3s ease; }
+        .btn-cancel:hover { border-color: #1A1A1A; color: #1A1A1A; background: white; }
+        .step-content { display: none; } .step-content.active { display: block; }
+        .progress-panel { position: fixed; right: 40px; top: 50%; transform: translateY(-50%); background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(10px); border-radius: 16px; padding: 24px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1); border: 1px solid rgba(255, 255, 255, 0.5); min-width: 220px; }
+        .progress-title { font-size: 14px; font-weight: 700; color: #1A1A1A; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 2px solid #E9ECEF; }
+        .progress-step { display: flex; align-items: center; padding: 12px 0; transition: all 0.3s ease; }
+        .progress-step:not(:last-child) { border-bottom: 1px solid #F3F4F6; }
+        .progress-step-icon { width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; margin-right: 12px; flex-shrink: 0; }
+        .progress-step-icon.pending { background: #F3F4F6; color: #9CA3AF; }
+        .progress-step-icon.active { background: rgba(59, 130, 246, 0.1); color: #3B82F6; }
+        .progress-step-icon.success { background: rgba(34, 197, 94, 0.1); color: #22C55E; }
+        .progress-step-content { flex: 1; }
+        .progress-step-name { font-size: 13px; font-weight: 600; color: #1A1A1A; margin-bottom: 2px; }
+        .progress-step-desc { font-size: 11px; color: #6B7280; }
+        .progress-step-icon.pending + .progress-step-content .progress-step-name { color: #9CA3AF; }
+        .progress-step-icon.active + .progress-step-content .progress-step-name { color: #3B82F6; }
+        .progress-step-icon.success + .progress-step-content .progress-step-name { color: #22C55E; }
+        .progress-step-icon.active { animation: pulse-icon 2s ease-in-out infinite; }
+        @keyframes pulse-icon { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.05); } }
+        * { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+    </style>
+</head>
+<body class="gradient-sky min-h-screen flex flex-col">
+    <div class="mountain-bg"></div>
+    <header class="w-full py-6 px-8"><div class="max-w-5xl mx-auto text-center"><h1 class="text-2xl font-black text-gray-700" style="font-family: 'Satoshi', sans-serif;">诺亚保管库</h1><p class="text-gray-500 text-sm mt-2">组合认证 - 按顺序进行认证</p></div></header>
+    <main class="flex-1 flex items-center justify-center p-6">
+        <div class="w-full max-w-2xl text-center">
+            <div id="step-iris" class="step-content active">
+                <div class="flex justify-center gap-6 mb-10">
+                    <div class="auth-item active"><div class="auth-icon active"><svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><ellipse cx="12" cy="12" rx="10" ry="8" stroke="currentColor" stroke-width="1.5"/><circle cx="12" cy="12" r="4" fill="currentColor" opacity="0.3"/><circle cx="12" cy="12" r="2" fill="currentColor"/></svg></div><span class="auth-status active">正在扫描虹膜</span></div>
+                    <div class="auth-item pending"><div class="auth-icon pending"><svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 11.5V14m0-2.5v-6a1.5 1.5 0 113 0m-3 6a1.5 1.5 0 00-3 0v2a7.5 7.5 0 0015 0v-5a1.5 1.5 0 00-3 0m-6-3V11m0-5.5v-1a1.5 1.5 0 013 0v1m0 0V11m0-5.5a1.5 1.5 0 013 0v3m0 0V11"/></svg></div><span class="auth-status pending">等待中</span></div>
+                </div>
+                <div class="iris-scanner mb-6"><div class="pulse-ring pulse-1"></div><div class="pulse-ring pulse-2"></div><div class="pulse-ring pulse-3"></div><div class="scanner-ring scanner-ring-outer"></div><div class="scanner-ring scanner-ring-inner"></div><div class="scan-line"></div><svg class="iris-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><ellipse cx="12" cy="12" rx="10" ry="8" stroke="#3B82F6" stroke-width="1.5"/><circle cx="12" cy="12" r="4" fill="#3B82F6" opacity="0.3"/><circle cx="12" cy="12" r="2" fill="#3B82F6"/><path stroke="#3B82F6" stroke-width="1" d="M12 4v2M12 18v2M4 12h2M18 12h2"/></svg></div>
+                <p class="text-gray-500 text-sm mb-6">请注视设备摄像头<br/>保持眼睛与摄像头平齐</p>
+                <div class="flex items-center justify-center space-x-2"><div class="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style="animation-delay: 0s;"></div><div class="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style="animation-delay: 0.2s;"></div><div class="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style="animation-delay: 0.4s;"></div></div>
+            </div>
+            <div id="step-palm" class="step-content">
+                <div class="flex justify-center gap-6 mb-10">
+                    <div class="auth-item success"><div class="auth-icon success"><svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg></div><span class="auth-status success">认证通过</span></div>
+                    <div class="auth-item active"><div class="auth-icon active"><svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 11.5V14m0-2.5v-6a1.5 1.5 0 113 0m-3 6a1.5 1.5 0 00-3 0v2a7.5 7.5 0 0015 0v-5a1.5 1.5 0 00-3 0m-6-3V11m0-5.5v-1a1.5 1.5 0 013 0v1m0 0V11m0-5.5a1.5 1.5 0 013 0v3m0 0V11"/></svg></div><span class="auth-status active">正在扫描掌纹</span></div>
+                </div>
+                <div class="palm-scanner mb-6"><div class="palm-pulse-ring palm-pulse-1"></div><div class="palm-pulse-ring palm-pulse-2"></div><div class="palm-pulse-ring palm-pulse-3"></div><div class="scanner-frame scanner-frame-outer"></div><div class="scanner-frame scanner-frame-inner"></div><div class="scan-beam"></div><svg class="palm-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M7 11.5V14m0-2.5v-6a1.5 1.5 0 113 0m-3 6a1.5 1.5 0 00-3 0v2a7.5 7.5 0 0015 0v-5a1.5 1.5 0 00-3 0m-6-3V11m0-5.5v-1a1.5 1.5 0 013 0v1m0 0V11m0-5.5a1.5 1.5 0 013 0v3m0 0V11"/></svg></div>
+                <p class="text-gray-500 text-sm mb-6">请将手掌放置在扫描区域<br/>保持手掌平稳，五指自然展开</p>
+                <div class="flex items-center justify-center space-x-2"><div class="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style="animation-delay: 0s;"></div><div class="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style="animation-delay: 0.15s;"></div><div class="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style="animation-delay: 0.3s;"></div></div>
+            </div>
+            <div id="step-iris-failure" class="step-content">
+                <div class="flex justify-center gap-6 mb-10">
+                    <div class="auth-item failure"><div class="auth-icon failure"><svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></div><span class="auth-status failure">失败请重试</span></div>
+                    <div class="auth-item pending"><div class="auth-icon pending"><svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 11.5V14m0-2.5v-6a1.5 1.5 0 113 0m-3 6a1.5 1.5 0 00-3 0v2a7.5 7.5 0 0015 0v-5a1.5 1.5 0 00-3 0m-6-3V11m0-5.5v-1a1.5 1.5 0 013 0v1m0 0V11m0-5.5a1.5 1.5 0 013 0v3m0 0V11"/></svg></div><span class="auth-status pending">等待中</span></div>
+                </div>
+                <div class="iris-scanner mb-6"><div class="pulse-ring pulse-1" style="border-color: #EF4444;"></div><div class="pulse-ring pulse-2" style="border-color: #EF4444;"></div><div class="pulse-ring pulse-3" style="border-color: #EF4444;"></div><div class="scanner-ring scanner-ring-outer" style="border-color: #EF4444;"></div><div class="scanner-ring scanner-ring-inner" style="border-color: #EF4444;"></div><svg class="iris-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></div>
+                <p class="text-gray-500 text-sm mb-6">虹膜不匹配或扫描不清晰<br/>请重新尝试</p>
+                <button onclick="showStep('step-iris')" class="btn-start">重新扫描</button>
+            </div>
+            <div id="step-palm-failure" class="step-content">
+                <div class="flex justify-center gap-6 mb-10">
+                    <div class="auth-item success"><div class="auth-icon success"><svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg></div><span class="auth-status success">认证通过</span></div>
+                    <div class="auth-item failure"><div class="auth-icon failure"><svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></div><span class="auth-status failure">失败请重试</span></div>
+                </div>
+                <div class="palm-scanner mb-6"><div class="palm-pulse-ring palm-pulse-1" style="border-color: #EF4444;"></div><div class="palm-pulse-ring palm-pulse-2" style="border-color: #EF4444;"></div><div class="palm-pulse-ring palm-pulse-3" style="border-color: #EF4444;"></div><div class="scanner-frame scanner-frame-outer" style="border-color: #EF4444;"></div><div class="scanner-frame scanner-frame-inner" style="border-color: #EF4444;"></div><svg class="palm-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></div>
+                <p class="text-gray-500 text-sm mb-6">掌纹不匹配或扫描不清晰<br/>请重新尝试</p>
+                <button onclick="showStep('step-palm')" class="btn-start">重新扫描</button>
+            </div>
+        </div>
+    </main>
+    <div class="progress-panel">
+        <div class="progress-title">📋 认证进度</div>
+        <div class="progress-step" id="progress-step-1"><div class="progress-step-icon active"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><ellipse cx="12" cy="12" rx="10" ry="8" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="4" fill="currentColor" opacity="0.3"/><circle cx="12" cy="12" r="2" fill="currentColor"/></svg></div><div class="progress-step-content"><div class="progress-step-name">虹膜认证</div><div class="progress-step-desc">请注视摄像头</div></div></div>
+        <div class="progress-step" id="progress-step-2"><div class="progress-step-icon pending"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 11.5V14m0-2.5v-6a1.5 1.5 0 113 0m-3 6a1.5 1.5 0 00-3 0v2a7.5 7.5 0 0015 0v-5a1.5 1.5 0 00-3 0m-6-3V11m0-5.5v-1a1.5 1.5 0 013 0v1m0 0V11m0-5.5a1.5 1.5 0 013 0v3m0 0V11"/></svg></div><div class="progress-step-content"><div class="progress-step-name">掌纹认证</div><div class="progress-step-desc">请放置手掌扫描</div></div></div>
+        <div class="progress-step" style="margin-top: 16px; padding-top: 16px; border-top: 2px solid #E9ECEF;"><div class="progress-step-icon" style="background: #FEF3C7; color: #F59E0B;"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div><div class="progress-step-content"><div class="progress-step-name" style="color: #F59E0B;">温馨提示</div><div class="progress-step-desc">请按顺序完成认证，失败后可重试</div></div></div>
+    </div>
+    <div class="test-buttons"><button class="btn-test" onclick="testIrisSuccess()">虹膜成功</button><button class="btn-test fail" onclick="testIrisFailure()">虹膜失败</button><button class="btn-test" onclick="testPalmSuccess()">掌纹成功</button><button class="btn-test fail" onclick="testPalmFailure()">掌纹失败</button></div>
+    <button class="btn-cancel" onclick="goBack()">取消</button>
+    <script>
+        function showStep(stepId) { document.querySelectorAll('.step-content').forEach(el => el.classList.remove('active')); document.getElementById(stepId).classList.add('active'); updateProgressPanel(); }
+        function updateProgressPanel() {
+            const step1Icon = document.querySelector('#progress-step-1 .progress-step-icon'), step1Desc = document.querySelector('#progress-step-1 .progress-step-desc');
+            const step2Icon = document.querySelector('#progress-step-2 .progress-step-icon'), step2Desc = document.querySelector('#progress-step-2 .progress-step-desc');
+            if (document.getElementById('step-iris').classList.contains('active')) { step1Icon.className = 'progress-step-icon active'; step1Desc.textContent = '正在扫描中...'; step2Icon.className = 'progress-step-icon pending'; step2Desc.textContent = '请放置手掌扫描'; }
+            else if (document.getElementById('step-palm').classList.contains('active')) { step1Icon.className = 'progress-step-icon success'; step1Desc.textContent = '已完成'; step2Icon.className = 'progress-step-icon active'; step2Desc.textContent = '正在扫描中...'; }
+            else if (document.getElementById('step-iris-failure').classList.contains('active')) { step1Icon.className = 'progress-step-icon active'; step1Desc.textContent = '识别失败，请重试'; step2Icon.className = 'progress-step-icon pending'; step2Desc.textContent = '等待虹膜认证'; }
+            else if (document.getElementById('step-palm-failure').classList.contains('active')) { step1Icon.className = 'progress-step-icon success'; step1Desc.textContent = '已完成'; step2Icon.className = 'progress-step-icon active'; step2Desc.textContent = '识别失败，请重试'; }
+        }
+        function testIrisSuccess() { showStep('step-palm'); } function testIrisFailure() { showStep('step-iris-failure'); }
+        function testPalmSuccess() { alert('掌纹认证成功！全部认证完成，即将跳转...（下一页待设计）'); } function testPalmFailure() { showStep('step-palm-failure'); }
+        function goBack() { window.location.href = '第二步选择认证方式.html'; }
+    </script>
+</body>
+</html>
