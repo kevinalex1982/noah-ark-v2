@@ -22,6 +22,7 @@ const DEFAULT_SETTINGS: SystemSettings = {
   mqttBroker: 'mqtt://58.33.106.19:3881',  // IAMS MQTT Broker地址
   mqttUsername: 'yq-device',  // MQTT用户名
   mqttPassword: 'yqyq123!@#',  // MQTT密码
+  aesEnabled: true,       // 是否启用AES加密（IAMS下发的用户编码是AES加密密文）
 };
 
 // 设置类型定义
@@ -35,6 +36,7 @@ export interface SystemSettings {
   mqttBroker: string;         // IAMS MQTT Broker地址
   mqttUsername: string;       // MQTT用户名
   mqttPassword: string;       // MQTT密码
+  aesEnabled: boolean;        // 是否启用AES加密
 }
 
 // 内存缓存
@@ -70,6 +72,7 @@ export function getSettings(): SystemSettings {
       mqttBroker: cachedSettings.mqttBroker,
       mqttUsername: cachedSettings.mqttUsername,
       mqttPassword: cachedSettings.mqttPassword,
+      aesEnabled: cachedSettings.aesEnabled,
     };
   }
 
@@ -89,6 +92,7 @@ export function getSettings(): SystemSettings {
       mqttBroker: settings.mqttBroker ?? DEFAULT_SETTINGS.mqttBroker,
       mqttUsername: settings.mqttUsername ?? DEFAULT_SETTINGS.mqttUsername,
       mqttPassword: settings.mqttPassword ?? DEFAULT_SETTINGS.mqttPassword,
+      aesEnabled: settings.aesEnabled ?? DEFAULT_SETTINGS.aesEnabled,
     };
 
     return {
@@ -101,6 +105,7 @@ export function getSettings(): SystemSettings {
       mqttBroker: cachedSettings.mqttBroker,
       mqttUsername: cachedSettings.mqttUsername,
       mqttPassword: cachedSettings.mqttPassword,
+      aesEnabled: cachedSettings.aesEnabled,
     };
   } catch (error: any) {
     console.error('[Settings] 读取设置失败:', error.message);
@@ -126,6 +131,7 @@ export function updateSettings(newSettings: Partial<SystemSettings>): SystemSett
     mqttBroker: newSettings.mqttBroker ?? currentSettings.mqttBroker,
     mqttUsername: newSettings.mqttUsername ?? currentSettings.mqttUsername,
     mqttPassword: newSettings.mqttPassword ?? currentSettings.mqttPassword,
+    aesEnabled: newSettings.aesEnabled ?? currentSettings.aesEnabled,
   };
 
   try {
@@ -209,6 +215,14 @@ export function getMqttUsername(): string {
 export function getMqttPassword(): string {
   const settings = getSettings();
   return settings.mqttPassword;
+}
+
+/**
+ * 是否启用AES加密
+ */
+export function isAesEnabled(): boolean {
+  const settings = getSettings();
+  return settings.aesEnabled;
 }
 
 /**

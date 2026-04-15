@@ -1,7 +1,12 @@
 /**
  * 设备状态 API
  * GET /api/devices
- * 获取所有设备的状态和凭证数量
+ * 查询设备配置并检查凭证数量（服务端主动发请求）
+ *
+ * 参数：
+ *   ?type=palm  - 只查掌纹设备
+ *   ?type=iris  - 只查虹膜设备
+ *   无参数      - 查所有设备
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -9,12 +14,10 @@ import { getDeviceConfigs, DeviceConfig } from '@/lib/sync-queue';
 import { initDatabase } from '@/lib/database';
 import http from 'http';
 
-// 设备超时配置
 const DEVICE_TIMEOUT = 5000;
 
 /**
  * 查询虹膜设备凭证数量
- * API: POST /members
  */
 async function getIrisCredentialCount(endpoint: string): Promise<{ online: boolean; count: number | null; error?: string }> {
   const startTime = Date.now();
@@ -52,24 +55,23 @@ async function getIrisCredentialCount(endpoint: string): Promise<{ online: boole
 }
 
 /**
- * 查询掌纹设备凭证数量
- * ⚠️ 必须使用 Node.js http 模块模拟 Python http.client 行为
- * ⚠️ sendData 必须放在 URL 中，JSON 不能有空格！
+ * 查询掌纹设备凭证数量（105 接口）
+ * ⚠️ 必须使用 Node.js http 模块
+ * ⚠️ sendData 放在 URL 中，不能 URL 编码，JSON 不能有空格
  */
 async function getPalmCredentialCount(endpoint: string): Promise<{ online: boolean; count: number | null; error?: string }> {
   const startTime = Date.now();
   console.log(`[PalmDevice] 检查状态: ${endpoint}`);
 
-  // 解析 endpoint 获取 host 和 port
   const url = new URL(endpoint);
   const host = url.hostname;
   const port = parseInt(url.port) || 80;
 
-  // ⚠️ 关键：sendData 放在 URL 中，JSON 不能有空格！
+  // ⚠️ sendData 不能 URL 编码，直接传原始 JSON 字符串，不能有空格
   const sendData = '{"request":"105"}';
   const path = `/api?sendData=${sendData}`;
 
-  console.log(`[PalmDevice] URL: http://${host}:${port}${path}`);
+  console.log(`[PalmDevice] URL path: ${path}`);
 
   return new Promise((resolve) => {
     const req = http.request(
@@ -108,7 +110,13 @@ async function getPalmCredentialCount(endpoint: string): Promise<{ online: boole
     req.on('error', (error) => {
       const responseTime = Date.now() - startTime;
       console.error(`[PalmDevice] 请求失败 (${responseTime}ms):`, error.message);
-      resolve({ online: false, count: null, error: error.message });
+      // ECONNRESET 说明设备忙碌拒绝，视为在线
+      if (error.message.includes('ECONNRESET')) {
+        console.log(`[PalmDevice] ECONNRESET，设备视为在线`);
+        resolve({ online: true, count: null });
+      } else {
+        resolve({ online: false, count: null, error: error.message });
+      }
     });
 
     req.on('timeout', () => {
@@ -123,19 +131,22 @@ async function getPalmCredentialCount(endpoint: string): Promise<{ online: boole
 
 export async function GET(request: NextRequest) {
   try {
-    // 确保数据库已初始化
     await initDatabase();
 
-    // 获取设备配置
-    const devices = await getDeviceConfigs();
-    console.log(`[API] 获取到 ${devices.length} 个设备配置`);
+    const typeFilter = request.nextUrl.searchParams.get('type'); // palm | iris | null
 
-    // 并行检查所有设备状态和凭证数量
+    const devices = await getDeviceConfigs();
+    console.log(`[API] 获取到 ${devices.length} 个设备配置${typeFilter ? ` (过滤: ${typeFilter})` : ''}`);
+
+    // 根据 type 参数过滤设备
+    const filteredDevices = typeFilter
+      ? devices.filter(d => d.device_type === typeFilter)
+      : devices;
+
     const deviceResults = await Promise.all(
-      devices.map(async (device: DeviceConfig) => {
+      filteredDevices.map(async (device: DeviceConfig) => {
         console.log(`[API] 检查设备: ${device.device_name} (${device.device_type})`);
 
-        // 根据设备类型调用不同的检查函数
         let result;
         if (device.device_type === 'iris') {
           result = await getIrisCredentialCount(device.endpoint);

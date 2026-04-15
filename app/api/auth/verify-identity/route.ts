@@ -5,6 +5,8 @@
 
 import { NextResponse } from 'next/server';
 import { initDatabase, findByUserCode } from '@/lib/database';
+import { isAesEnabled } from '@/lib/settings';
+import { aesEncrypt } from '@/lib/crypto';
 
 export async function GET(request: Request) {
   try {
@@ -29,8 +31,11 @@ export async function GET(request: Request) {
     // 初始化数据库
     await initDatabase();
 
+    // 如果启用了AES加密，将用户输入的明文编码加密后再查询
+    const queryId = isAesEnabled() ? aesEncrypt(identityId.trim()) : identityId.trim();
+
     // 从数据库查询用户编码
-    const userData = await findByUserCode(identityId);
+    const userData = await findByUserCode(queryId);
 
     if (!userData) {
       // 用户编码不存在

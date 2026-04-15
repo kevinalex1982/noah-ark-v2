@@ -12,7 +12,7 @@
  * - 支持连接远程服务器
  */
 
-import { app, BrowserWindow, Tray, Menu, nativeImage, shell, dialog, ipcMain } from 'electron';
+import { app, BrowserWindow, Tray, Menu, nativeImage, shell, dialog, ipcMain, NativeImage } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import { spawn } from 'child_process';
@@ -20,7 +20,7 @@ import { spawn } from 'child_process';
 // 默认配置
 const DEFAULT_CONFIG = {
   serverUrl: 'http://localhost:3001',  // 默认连接本地
-  title: '诺亚宝库',
+  title: '诺亚保管库',
   width: 1920,
   height: 1080,
 };
@@ -147,6 +147,29 @@ function getNodePath(): string {
 }
 
 /**
+ * 内嵌 Next.js 服务进程
+ */
+let nextProcess: ReturnType<typeof spawn> | null = null;
+
+/**
+ * 写入日志到文件
+ */
+function writeLog(message: string, level: 'info' | 'error' = 'info'): void {
+  const userDataDir = app.getPath('userData');
+  const logDir = path.join(userDataDir, 'logs');
+  const logFile = path.join(logDir, 'nextjs.log');
+
+  if (!require('fs').existsSync(logDir)) {
+    require('fs').mkdirSync(logDir, { recursive: true });
+  }
+
+  const timestamp = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
+  const line = `[${timestamp}] [${level}] ${message}\n`;
+
+  require('fs').appendFileSync(logFile, line, 'utf-8');
+}
+
+/**
  * 启动内嵌服务（打包后，仅当连接本地时）
  * 只启动 Next.js 服务，MQTT 连接 IAMS Broker
  */
@@ -174,23 +197,44 @@ async function startEmbeddedServices(): Promise<void> {
   console.log('[Electron] 数据目录:', userDataDir);
   console.log('[Electron] 数据库路径:', dbPath);
 
-  // 启动 Next.js 服务（独立控制台窗口）
+  // 启动 Next.js 服务（后台进程，无控制台窗口）
   console.log('[Electron] 启动 Next.js 服务...');
-  const nextPath = path.join(appPath, 'node_modules', '.bin', 'next.cmd');
+  const nextCliPath = path.join(appPath, 'node_modules', 'next', 'dist', 'bin', 'next');
 
-  spawn('cmd.exe', [
-    '/c', 'start', 'cmd.exe', '/k',
-    `"Next.js Server - Port 3001" && ${nextPath} start -p 3001`,
-  ], {
+  nextProcess = spawn(nodePath, [nextCliPath, 'start', '-p', '3001'], {
     cwd: appPath,
     env: {
       ...process.env,
       NODE_ENV: 'production',
-      DATABASE_PATH: dbPath,  // ⚠️ 数据库路径（AppData）
-      DATA_DIR: userDataDir,  // ⚠️ 数据目录（AppData，settings.json等）
+      DATABASE_PATH: dbPath,
+      DATA_DIR: userDataDir,
     },
-    shell: true,
+    stdio: ['ignore', 'pipe', 'pipe'],
     detached: true,
+  });
+
+  // 将子进程输出转发到主进程控制台 + 日志文件
+  nextProcess.stdout?.on('data', (data) => {
+    const text = data.toString().trim();
+    if (text) {
+      console.log(`[Next.js] ${text}`);
+      writeLog(text, 'info');
+    }
+  });
+  nextProcess.stderr?.on('data', (data) => {
+    const text = data.toString().trim();
+    if (text) {
+      console.error(`[Next.js] ${text}`);
+      writeLog(text, 'error');
+    }
+  });
+  nextProcess.on('error', (err) => {
+    console.error('[Electron] Next.js 进程启动失败:', err);
+    writeLog(`进程启动失败: ${err.message}`, 'error');
+  });
+  nextProcess.on('exit', (code, signal) => {
+    console.log(`[Electron] Next.js 进程退出: code=${code}, signal=${signal}`);
+    writeLog(`进程退出: code=${code}, signal=${signal}`, 'error');
   });
 
   // 等待 Next.js 启动
@@ -200,15 +244,22 @@ async function startEmbeddedServices(): Promise<void> {
 
 /**
  * 停止内嵌服务
- * 关闭 Next.js 服务（端口 3001）
  */
 function stopEmbeddedServices(): void {
   console.log('[Electron] 停止 Next.js 服务...');
 
-  // 关闭端口 3001 的进程（Next.js）
-  spawn('cmd.exe', ['/c', 'for /f "tokens=5" %a in (\'netstat -ano ^| findstr :3001\') do taskkill /F /PID %a'], {
-    shell: true,
-  });
+  if (nextProcess) {
+    try {
+      nextProcess.kill('SIGTERM');
+      // 如果进程没在 3 秒内退出，强制终止整个进程树
+      setTimeout(() => {
+        try {
+          spawn('taskkill', ['/F', '/T', '/PID', String(nextProcess!.pid)]);
+        } catch { /* ignore */ }
+      }, 3000);
+    } catch { /* process already dead */ }
+    nextProcess = null;
+  }
 }
 
 /**
@@ -218,7 +269,7 @@ function setAutoLaunch(enable: boolean): void {
   app.setLoginItemSettings({
     openAtLogin: enable,
     openAsHidden: false,
-    name: '诺亚宝库',
+    name: '诺亚保管库',
   });
 }
 
@@ -229,7 +280,6 @@ function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: CONFIG.width,
     height: CONFIG.height,
-    fullscreen: false,
     fullscreenable: true,
     kiosk: false,
     title: CONFIG.title,
@@ -249,6 +299,7 @@ function createWindow(): void {
   mainWindow.loadURL(CONFIG.serverUrl);
 
   mainWindow.once('ready-to-show', () => {
+    mainWindow?.maximize();
     mainWindow?.show();
     mainWindow?.focus();
   });
@@ -283,10 +334,62 @@ function createWindow(): void {
 }
 
 /**
+ * 创建一个简单的托盘图标（灰色圆角方块 + 白色字母 N）
+ */
+function createTrayIcon(): NativeImage {
+  // 创建一个 16x16 的托盘图标
+  const size = 16;
+  const canvas = Buffer.alloc(size * size * 4); // RGBA
+
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const idx = (y * size + x) * 4;
+      // 圆角判断
+      const radius = 3;
+      let isCorner = false;
+      if (x < radius && y < radius) {
+        const dx = x - radius + 1;
+        const dy = y - radius + 1;
+        if (dx * dx + dy * dy > radius * radius) isCorner = true;
+      }
+      if (x >= size - radius && y < radius) {
+        const dx = x - size + radius;
+        const dy = y - radius + 1;
+        if (dx * dx + dy * dy > radius * radius) isCorner = true;
+      }
+      if (x < radius && y >= size - radius) {
+        const dx = x - radius + 1;
+        const dy = y - size + radius;
+        if (dx * dx + dy * dy > radius * radius) isCorner = true;
+      }
+      if (x >= size - radius && y >= size - radius) {
+        const dx = x - size + radius;
+        const dy = y - size + radius;
+        if (dx * dx + dy * dy > radius * radius) isCorner = true;
+      }
+
+      if (isCorner) {
+        canvas[idx] = 0;     // R
+        canvas[idx + 1] = 0; // G
+        canvas[idx + 2] = 0; // B
+        canvas[idx + 3] = 0; // A
+      } else {
+        canvas[idx] = 50;     // R - 深灰色背景
+        canvas[idx + 1] = 50; // G
+        canvas[idx + 2] = 55; // B
+        canvas[idx + 3] = 255; // A - 不透明
+      }
+    }
+  }
+
+  return nativeImage.createFromBuffer(canvas, { width: size, height: size });
+}
+
+/**
  * 创建系统托盘
  */
 function createTray(): void {
-  const icon = nativeImage.createEmpty();
+  const icon = createTrayIcon();
   tray = new Tray(icon);
 
   const loginSettings = app.getLoginItemSettings();
@@ -332,6 +435,32 @@ function createTray(): void {
       label: '打开开发者工具',
       click: () => mainWindow?.webContents.openDevTools(),
     },
+    {
+      label: '查看服务器日志',
+      click: () => {
+        const logFile = path.join(app.getPath('userData'), 'logs', 'nextjs.log');
+        if (fs.existsSync(logFile)) {
+          shell.openPath(logFile);
+        } else {
+          dialog.showMessageBox(mainWindow!, {
+            type: 'info',
+            title: '提示',
+            message: '日志文件尚未创建',
+            detail: '服务器启动后会自动创建日志文件',
+          });
+        }
+      },
+    },
+    {
+      label: '打开日志文件夹',
+      click: () => {
+        const logDir = path.join(app.getPath('userData'), 'logs');
+        if (!fs.existsSync(logDir)) {
+          fs.mkdirSync(logDir, { recursive: true });
+        }
+        shell.openPath(logDir);
+      },
+    },
     { type: 'separator' },
     {
       label: '重启应用',
@@ -346,7 +475,7 @@ function createTray(): void {
     },
   ]);
 
-  tray.setToolTip('诺亚宝库');
+  tray.setToolTip('诺亚保管库');
   tray.setContextMenu(contextMenu);
   tray.on('click', () => {
     mainWindow?.show();
@@ -355,9 +484,38 @@ function createTray(): void {
 }
 
 /**
+ * 检查并清除旧数据（由安装程序标记）
+ */
+function checkAndClearOldData(): void {
+  const userDataDir = app.getPath('userData');
+  const flagPath = path.join(userDataDir, '.clear-old-data');
+
+  if (fs.existsSync(flagPath)) {
+    console.log('[Electron] 检测到清除旧数据标记，开始清理...');
+    try {
+      // 删除整个 userData 目录（数据库、设置、日志等）
+      // 注意：只删除 noah-ark-electron 目录的内容，不删除目录本身
+      const items = fs.readdirSync(userDataDir);
+      for (const item of items) {
+        if (item === '.clear-old-data') continue; // 标记文件最后删除
+        const itemPath = path.join(userDataDir, item);
+        fs.rmSync(itemPath, { recursive: true, force: true });
+      }
+      fs.unlinkSync(flagPath); // 删除标记文件
+      console.log('[Electron] 旧数据已清除');
+    } catch (error) {
+      console.error('[Electron] 清除旧数据失败:', error);
+    }
+  }
+}
+
+/**
  * 应用启动
  */
 async function main() {
+  // 检查是否需要清除旧数据（安装程序设置的标记）
+  checkAndClearOldData();
+
   // 加载客户端配置（服务器地址）
   const clientConfig = loadClientConfig();
   CONFIG.serverUrl = clientConfig.serverUrl;

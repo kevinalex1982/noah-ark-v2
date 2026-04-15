@@ -383,6 +383,11 @@ export async function deleteFromPalmDeviceMQTT(
   });
 }
 
+// 虹膜设备操作状态（防止并发 + 失败冷却）
+type IrisDeviceState = 'idle' | 'busy' | 'cooling_down';
+let irisDeviceState: IrisDeviceState = 'idle';
+const IRIS_COOLDOWN_MS = 10000; // 冷却时间 10 秒
+
 /**
  * 锁定/解锁虹膜设备
  * 上传人员前需要锁定，上传后需要解锁
@@ -520,6 +525,11 @@ export async function syncToIrisDeviceWithoutLock(
  * 同步到虹膜设备（memberSave 接口）
  * 流程：锁定设备 -> 上传人员 -> 解锁设备
  * @param skipDebugLog 是否跳过调试日志（重试时跳过，避免文件过多）
+ *
+ * 冷却机制：
+ * - 冷却期间：sleep 10 秒（不操作设备）后返回失败，占用住 IAMS
+ * - 锁定失败：立即返回失败
+ * - 解锁失败：sleep 5 秒后重试解锁，成功则返回原失败结果，仍失败则进入冷却
  */
 export async function syncToIrisDevice(
   endpoint: string,
@@ -537,6 +547,16 @@ export async function syncToIrisDevice(
 ): Promise<{ success: boolean; response?: string; error?: string }> {
   const beijingTime = () => new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
 
+  // === 检查冷却状态 ===
+  if (irisDeviceState === 'cooling_down') {
+    console.log(`[${beijingTime()}] [设备] 虹膜设备冷却中，等待 10 秒后返回失败（不操作设备）`);
+    await new Promise(resolve => setTimeout(resolve, IRIS_COOLDOWN_MS));
+    return { success: false, error: '虹膜设备冷却中，请稍后重试' };
+  }
+
+  // 设置为忙碌状态
+  irisDeviceState = 'busy';
+
   try {
     const url = `${endpoint}/memberSave`;
 
@@ -545,6 +565,7 @@ export async function syncToIrisDevice(
     const rightIrisBmp = payload.irisRightImage ? await convertToBmpBase64(payload.irisRightImage) : '';
 
     if (!leftIrisBmp && !rightIrisBmp) {
+      irisDeviceState = 'idle';
       return { success: false, error: '虹膜数据转换失败' };
     }
 
@@ -569,6 +590,8 @@ export async function syncToIrisDevice(
     console.log(`[${beijingTime()}] [设备] 步骤1: 锁定设备...`);
     const lockResult = await setIrisDeviceSaveState(endpoint, 1);
     if (!lockResult.success) {
+      console.log(`[${beijingTime()}] [设备] ❌ 锁定失败，立即返回失败`);
+      irisDeviceState = 'idle';
       return { success: false, error: lockResult.error || '锁定设备失败' };
     }
     console.log(`[${beijingTime()}] [设备] 锁定成功`);
@@ -595,8 +618,33 @@ export async function syncToIrisDevice(
 
     // 3. 解锁设备
     console.log(`[${beijingTime()}] [设备] 步骤3: 解锁设备...`);
-    await setIrisDeviceSaveState(endpoint, 0);
-    console.log(`[${beijingTime()}] [设备] 解锁成功`);
+    const unlockResult = await setIrisDeviceSaveState(endpoint, 0);
+
+    if (!unlockResult.success) {
+      // 解锁失败：sleep 5 秒后重试
+      console.log(`[${beijingTime()}] [设备] ⚠️ 解锁失败，等待 5 秒后重试解锁...`);
+      await new Promise(resolve => setTimeout(resolve, 5000));
+
+      console.log(`[${beijingTime()}] [设备] 步骤3(重试): 解锁设备...`);
+      const unlockRetryResult = await setIrisDeviceSaveState(endpoint, 0);
+
+      if (unlockRetryResult.success) {
+        console.log(`[${beijingTime()}] [设备] 重试解锁成功，返回原操作结果`);
+        // 解锁重试成功：恢复空闲，返回原上传结果
+        irisDeviceState = 'idle';
+      } else {
+        // 重试仍失败：进入冷却
+        console.log(`[${beijingTime()}] [设备] ❌ 重试解锁仍失败，进入 ${IRIS_COOLDOWN_MS / 1000} 秒冷却`);
+        irisDeviceState = 'cooling_down';
+        setTimeout(() => {
+          irisDeviceState = 'idle';
+          console.log(`[${beijingTime()}] [设备] 虹膜设备冷却结束`);
+        }, IRIS_COOLDOWN_MS);
+      }
+    } else {
+      console.log(`[${beijingTime()}] [设备] 解锁成功`);
+      irisDeviceState = 'idle';
+    }
 
     if (responseData.errorCode === 0 || responseData.errorCode === '0') {
       console.log(`[${beijingTime()}] [设备] ✅ 虹膜添加成功`);
@@ -608,6 +656,7 @@ export async function syncToIrisDevice(
   } catch (error: any) {
     console.error(`[${beijingTime()}] [设备] 虹膜下发异常: ${error.message}`);
     try { await setIrisDeviceSaveState(endpoint, 0); } catch {}
+    irisDeviceState = 'idle';
     return { success: false, error: translateErrorMessage(error.message) };
   }
 }
@@ -953,7 +1002,7 @@ export async function checkDeviceStatus(
   try {
     let url: string;
     if (type === 'palm') {
-      // 掌纹设备：使用 105 接口测试（sendData 不编码）
+      // 掌纹设备：使用 105 接口测试在线（sendData 不编码）
       url = `${deviceEndpoint}/api?sendData={"request":"105"}`;
     } else {
       // 虹膜设备：使用 members 接口测试
@@ -983,6 +1032,15 @@ export async function checkDeviceStatus(
       };
     }
   } catch (error: any) {
+    // ECONNRESET 说明设备端主动断开连接，设备仍在工作，视为在线
+    if (error.message?.includes('ECONNRESET')) {
+      return {
+        online: true,
+        type,
+        endpoint: deviceEndpoint,
+        message: '设备在线（连接重置）',
+      };
+    }
     return {
       online: false,
       type,
@@ -1039,23 +1097,8 @@ export async function processSyncQueue(): Promise<{
       continue;
     }
 
-    // 检查设备是否在线
-    const deviceStatus = await checkDeviceStatus(device.device_type, device.endpoint);
-    if (!deviceStatus.online) {
-      console.log(`${bjt()} [设备] 离线: ${device.device_id} (${device.device_type})`);
-      await updateQueueStatus(item.id, 'failed', '设备离线');
-      await addSyncLog({
-        queue_id: item.id,
-        device_id: item.device_id,
-        device_type: device.device_type,
-        action: item.action,
-        status: 'failed',
-        error_message: '设备离线',
-        duration_ms: 0,
-      });
-      failed++;
-      continue;
-    }
+    // 不再预先检查设备状态，直接执行操作
+    // 设备离线时操作本身会失败，自然会记录
 
     // 更新状态为处理中
     await updateQueueStatus(item.id, 'processing');

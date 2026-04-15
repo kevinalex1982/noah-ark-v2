@@ -12,7 +12,7 @@
   },
   "build": {
     "appId": "com.noah-ark.app",
-    "productName": "诺亚宝库",
+    "productName": "诺亚保管库",
     "copyright": "Copyright © 2024 诺亚方舟项目组",
     "directories": {
       "output": "release",
@@ -82,8 +82,12 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "诺亚宝库"
+      "shortcutName": "诺亚保管库",
+      "include": "build/installer.nsh"
     }
+  },
+  "dependencies": {
+    "@libsql/client": "^0.17.2"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

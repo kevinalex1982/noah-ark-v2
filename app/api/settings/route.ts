@@ -39,6 +39,7 @@ export async function POST(request: NextRequest) {
       mqttBroker?: string;
       mqttUsername?: string;
       mqttPassword?: string;
+      aesEnabled?: boolean;
     } = {};
 
     if (typeof body.authTimeout === 'number' && body.authTimeout > 0) {
@@ -77,6 +78,10 @@ export async function POST(request: NextRequest) {
       updates.mqttPassword = body.mqttPassword;
     }
 
+    if (typeof body.aesEnabled === 'boolean') {
+      updates.aesEnabled = body.aesEnabled;
+    }
+
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({
         success: false,
@@ -85,6 +90,35 @@ export async function POST(request: NextRequest) {
     }
 
     const settings = updateSettings(updates);
+
+    // 如果修改了虹膜/掌纹设备地址，同步更新 device_config 数据库表
+    // （MQTT 凭证下发使用 device_config 中的 endpoint，不是 settings.json）
+    if (updates.irisEndpoint || updates.palmEndpoint) {
+      try {
+        const { getDatabase } = await import('@/lib/database');
+        const db = getDatabase();
+        const now = new Date().toISOString();
+
+        if (updates.irisEndpoint) {
+          const result = await db.execute({
+            sql: `UPDATE device_config SET endpoint = ?, updated_at = ? WHERE device_type = 'iris'`,
+            args: [updates.irisEndpoint, now],
+          });
+          console.log(`[Settings] 虹膜设备地址已更新: ${updates.irisEndpoint}, 影响行数: ${result.rowsAffected}`);
+        }
+
+        if (updates.palmEndpoint) {
+          const result = await db.execute({
+            sql: `UPDATE device_config SET endpoint = ?, updated_at = ? WHERE device_type = 'palm'`,
+            args: [updates.palmEndpoint, now],
+          });
+          console.log(`[Settings] 掌纹设备地址已更新: ${updates.palmEndpoint}, 影响行数: ${result.rowsAffected}`);
+        }
+      } catch (error: any) {
+        console.error('[Settings] 更新 device_config 失败:', error.message);
+        // 不抛出错误，settings.json 已保存成功
+      }
+    }
 
     // 如果修改了设备ID或MQTT连接设置，需要刷新MQTT订阅和状态上报
     if (updates.deviceId || updates.mqttBroker || updates.mqttUsername || updates.mqttPassword) {

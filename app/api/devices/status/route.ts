@@ -71,6 +71,11 @@ async function checkPalmDeviceHealth(endpoint: string): Promise<{
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error(`[PalmDevice] 检查失败:`, errorMessage);
+    // ECONNRESET 说明设备端主动断开连接，设备仍在工作，视为在线
+    if (errorMessage.includes('ECONNRESET')) {
+      console.log(`[PalmDevice] ECONNRESET，设备视为在线`);
+      return { online: true };
+    }
     return { online: false, error: errorMessage };
   }
 }

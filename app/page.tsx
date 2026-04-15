@@ -1,4 +1,4 @@
-// 待机页面 - 诺亚宝库
+// 待机页面 - 诺亚保管库
 'use client';
 
 import { useRouter } from 'next/navigation';
@@ -46,12 +46,12 @@ export default function HomePage() {
 
         {/* 标题 */}
         <h1 className="text-4xl font-black text-gray-900 mb-4" style={{ fontFamily: 'Satoshi, sans-serif', letterSpacing: '-1px' }}>
-          诺亚宝库
+          诺亚保管库
         </h1>
 
         {/* 副标题 */}
         <p className="text-gray-600 text-lg mb-8">
-          生物识别设备管理系统
+          身份认证系统
         </p>
 
         {/* 提示文字 */}

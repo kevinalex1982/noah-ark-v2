@@ -146,6 +146,7 @@ export default function PassLogsPage() {
               <a href="/dashboard/credentials" className="text-gray-600 hover:text-gray-900">凭证管理</a>
               <a href="/dashboard/mqtt-events" className="text-gray-600 hover:text-gray-900">MQTT指令</a>
               <a href="/dashboard/pass-logs" className="text-blue-600 font-medium">通行记录</a>
+              <a href="/dashboard/logs" className="text-gray-600 hover:text-gray-900">服务器日志</a>
               <a href="/dashboard/settings" className="text-gray-600 hover:text-gray-900">系统设置</a>
             </nav>
           </div>

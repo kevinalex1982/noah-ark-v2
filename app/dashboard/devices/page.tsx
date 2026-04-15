@@ -85,13 +85,30 @@ export default function DevicesPage() {
   }, []);
 
   // 获取设备列表
-  const fetchDevices = useCallback(async () => {
+  const fetchDevices = useCallback(async (type?: 'palm' | 'iris') => {
     try {
-      const response = await fetch('/api/devices');
+      const url = type ? `/api/devices?type=${type}` : '/api/devices';
+      const response = await fetch(url);
       const data = await response.json();
-      
+
       if (data.success) {
-        setDevices(data.devices);
+        if (type) {
+          // 合并单个设备到状态中
+          setDevices(prev => {
+            const updated = [...prev];
+            for (const dev of data.devices) {
+              const idx = updated.findIndex(d => d.id === dev.id);
+              if (idx >= 0) {
+                updated[idx] = dev;
+              } else {
+                updated.push(dev);
+              }
+            }
+            return updated;
+          });
+        } else {
+          setDevices(data.devices);
+        }
       }
     } catch (error) {
       console.error('获取设备列表失败:', error);
@@ -179,22 +196,33 @@ export default function DevicesPage() {
 
     loadData();
 
-    // 定时刷新设备状态和 IAMS 状态（每 30 秒）
-    const refreshTimer = setInterval(() => {
-      fetchDevices();
-      fetchIamsStatus();
+    // 掌纹设备：每 15 秒查一次（记录日志向厂家反映）
+    const palmTimer = setInterval(() => {
+      fetchDevices('palm');
+    }, 15000);
+
+    // 虹膜设备：每 30 秒查一次
+    const irisTimer = setInterval(() => {
+      fetchDevices('iris');
     }, 30000);
 
-    // 定时刷新下发记录（每 60 秒）
+    // IAMS 状态：每 10 秒查一次（读数据库缓存）
+    const iamsTimer = setInterval(() => {
+      fetchIamsStatus();
+    }, 10000);
+
+    // 下发记录：每 10 秒查一次（读数据库）
     const logsTimer = setInterval(() => {
       fetchSyncLogs();
-    }, 60000);
+    }, 10000);
 
     // 注意：同步队列由后端 sync-scheduler 处理，间隔 5 分钟
     // 前端不再主动触发重试，避免频繁锁定设备
 
     return () => {
-      clearInterval(refreshTimer);
+      clearInterval(palmTimer);
+      clearInterval(irisTimer);
+      clearInterval(iamsTimer);
       clearInterval(logsTimer);
     };
   }, [fetchDevices, fetchIamsStatus, fetchSyncLogs]);
@@ -840,6 +868,7 @@ export default function DevicesPage() {
               <a href="/dashboard/credentials" className="text-gray-600 hover:text-gray-900">凭证管理</a>
               <a href="/dashboard/mqtt-events" className="text-gray-600 hover:text-gray-900">MQTT指令</a>
               <a href="/dashboard/pass-logs" className="text-gray-600 hover:text-gray-900">通行记录</a>
+              <a href="/dashboard/logs" className="text-gray-600 hover:text-gray-900">服务器日志</a>
               <a href="/dashboard/settings" className="text-gray-600 hover:text-gray-900">系统设置</a>
             </nav>
           </div>
@@ -881,10 +910,10 @@ export default function DevicesPage() {
             </div>
           </div>
 
-          {/* 生物识别设备状态 */}
+          {/* 识别设备状态 */}
           <div className="bg-white rounded-2xl shadow-xl border-2 border-gray-200 p-6">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-black text-gray-900">生物识别设备</h2>
+              <h2 className="text-xl font-black text-gray-900">识别设备</h2>
               <div className="flex items-center space-x-2">
                 <span className={`w-3 h-3 rounded-full ${allDevicesOffline ? 'bg-red-500' : 'bg-green-500'}`}></span>
                 <span className={`text-sm font-bold ${allDevicesOffline ? 'text-red-600' : 'text-green-600'}`}>
@@ -909,11 +938,6 @@ export default function DevicesPage() {
                       {device.status === 'online' && device.credential_count !== null && (
                         <span className="ml-2 text-blue-600 font-medium">
                           · {device.credential_count} 条凭证
-                        </span>
-                      )}
-                      {device.status === 'online' && device.credential_count === null && (
-                        <span className="ml-2 text-orange-500 font-medium">
-                          · 设备 API 无响应
                         </span>
                       )}
                       {device.status === 'offline' && (

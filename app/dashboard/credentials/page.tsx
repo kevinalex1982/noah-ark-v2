@@ -272,6 +272,70 @@ function DeleteModal({ isOpen, credential, onClose, onConfirm, loading }: Delete
   );
 }
 
+// 解密模态框的 props
+interface DecryptModalProps {
+  isOpen: boolean;
+  ciphertext: string | null;
+  plaintext: string | null;
+  loading: boolean;
+  error: string | null;
+  onClose: () => void;
+}
+
+// 解密模态框组件
+function DecryptModal({ isOpen, ciphertext, plaintext, loading, error, onClose }: DecryptModalProps) {
+  if (!isOpen || !ciphertext) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold">解密用户编码</h3>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm text-gray-500 mb-1">密文（数据库中存储的值）</label>
+            <div className="text-xs font-mono bg-gray-50 p-2 rounded break-all">{ciphertext}</div>
+          </div>
+
+          {loading && (
+            <div className="text-center text-gray-500 py-4">解密中...</div>
+          )}
+
+          {error && (
+            <div className="text-sm text-red-600 bg-red-50 p-3 rounded">{error}</div>
+          )}
+
+          {plaintext && !loading && (
+            <div>
+              <label className="block text-sm text-gray-500 mb-1">明文（解密后的身份编码）</label>
+              <div className="text-lg font-mono bg-green-50 p-3 rounded text-green-800 font-semibold">{plaintext}</div>
+            </div>
+          )}
+        </div>
+
+        <div className="mt-6 flex justify-end">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+          >
+            关闭
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function CredentialsPage() {
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [loading, setLoading] = useState(true);
@@ -295,6 +359,19 @@ export default function CredentialsPage() {
     isOpen: false,
     credential: null,
     loading: false,
+  });
+  const [decryptModal, setDecryptModal] = useState<{
+    isOpen: boolean;
+    ciphertext: string | null;
+    plaintext: string | null;
+    loading: boolean;
+    error: string | null;
+  }>({
+    isOpen: false,
+    ciphertext: null,
+    plaintext: null,
+    loading: false,
+    error: null,
   });
 
   const pageSize = 15;
@@ -349,6 +426,47 @@ export default function CredentialsPage() {
   // 打开删除确认弹窗
   const handleSimulateDelete = useCallback((cred: Credential) => {
     setDeleteModal({ isOpen: true, credential: cred, loading: false });
+  }, []);
+
+  // 双击用户编码解密
+  const handleDoubleClickDecrypt = useCallback(async (personId: string) => {
+    setDecryptModal({
+      isOpen: true,
+      ciphertext: personId,
+      plaintext: null,
+      loading: true,
+      error: null,
+    });
+
+    try {
+      const response = await fetch('/api/auth/decrypt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ciphertext: personId }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        setDecryptModal(prev => ({
+          ...prev,
+          plaintext: data.plaintext,
+          loading: false,
+        }));
+      } else {
+        setDecryptModal(prev => ({
+          ...prev,
+          error: data.message,
+          loading: false,
+        }));
+      }
+    } catch (error: any) {
+      setDecryptModal(prev => ({
+        ...prev,
+        error: error.message,
+        loading: false,
+      }));
+    }
   }, []);
 
   // 确认删除
@@ -407,6 +525,14 @@ export default function CredentialsPage() {
         onConfirm={handleConfirmDelete}
         loading={deleteModal.loading}
       />
+      <DecryptModal
+        isOpen={decryptModal.isOpen}
+        ciphertext={decryptModal.ciphertext}
+        plaintext={decryptModal.plaintext}
+        loading={decryptModal.loading}
+        error={decryptModal.error}
+        onClose={() => setDecryptModal({ isOpen: false, ciphertext: null, plaintext: null, loading: false, error: null })}
+      />
 
       {/* Header */}
       <header className="bg-white shadow">
@@ -429,6 +555,7 @@ export default function CredentialsPage() {
               <a href="/dashboard/credentials" className="text-blue-600 font-medium">凭证管理</a>
               <a href="/dashboard/mqtt-events" className="text-gray-600 hover:text-gray-900">MQTT指令</a>
               <a href="/dashboard/pass-logs" className="text-gray-600 hover:text-gray-900">通行记录</a>
+              <a href="/dashboard/logs" className="text-gray-600 hover:text-gray-900">服务器日志</a>
               <a href="/dashboard/settings" className="text-gray-600 hover:text-gray-900">系统设置</a>
             </nav>
           </div>
@@ -500,7 +627,11 @@ export default function CredentialsPage() {
                       <div className="text-sm font-medium text-gray-900">{cred.person_name}</div>
                       <div className="text-sm text-gray-500">{cred.person_id}</div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <td
+                      className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 cursor-pointer select-all hover:text-blue-600"
+                      onDoubleClick={() => handleDoubleClickDecrypt(cred.person_id)}
+                      title="双击可解密查看明文"
+                    >
                       {cred.person_id}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">

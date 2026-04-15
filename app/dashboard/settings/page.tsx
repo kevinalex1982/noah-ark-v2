@@ -16,6 +16,7 @@ interface SystemSettings {
   mqttBroker: string;
   mqttUsername: string;
   mqttPassword: string;
+  aesEnabled: boolean;
 }
 
 interface ClientConfig {
@@ -33,6 +34,7 @@ export default function SettingsPage() {
     mqttBroker: 'mqtt://58.33.106.19:3881',
     mqttUsername: 'yq-device',
     mqttPassword: 'yqyq123!@#',
+    aesEnabled: true,
   });
   const [clientConfig, setClientConfig] = useState<ClientConfig>({
     serverUrl: 'http://localhost:3001',
@@ -200,6 +202,14 @@ export default function SettingsPage() {
     }));
   };
 
+  // AES开关变化处理
+  const handleAesToggle = (checked: boolean) => {
+    setSettings((prev) => ({
+      ...prev,
+      aesEnabled: checked,
+    }));
+  };
+
   return (
     <div className="min-h-screen bg-gray-100">
       <Toast toasts={toasts} removeToast={removeToast} />
@@ -225,6 +235,7 @@ export default function SettingsPage() {
               <a href="/dashboard/credentials" className="text-gray-600 hover:text-gray-900">凭证管理</a>
               <a href="/dashboard/mqtt-events" className="text-gray-600 hover:text-gray-900">MQTT指令</a>
               <a href="/dashboard/pass-logs" className="text-gray-600 hover:text-gray-900">通行记录</a>
+              <a href="/dashboard/logs" className="text-gray-600 hover:text-gray-900">服务器日志</a>
               <a href="/dashboard/settings" className="text-blue-600 font-medium">系统设置</a>
             </nav>
           </div>
@@ -316,6 +327,27 @@ export default function SettingsPage() {
                     />
                     <span className="text-gray-500">秒</span>
                   </div>
+                </div>
+
+                {/* AES加密开关 */}
+                <div className="flex items-center justify-between py-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">
+                      启用 AES 加密
+                    </label>
+                    <p className="mt-1 text-sm text-gray-500">
+                      IAMS 下发的用户编码为 AES 加密密文时请启用。启用后用户输入将自动加密后查询
+                    </p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={settings.aesEnabled}
+                      onChange={(e) => handleAesToggle(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-gray-300 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-100 rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                  </label>
                 </div>
               </div>
             </div>
@@ -469,7 +501,7 @@ export default function SettingsPage() {
             {/* 提示信息 */}
             <div className="bg-amber-50 p-4 rounded-md">
               <p className="text-sm text-amber-700">
-                ⚠️ MQTT配置保存后需要重启应用才能生效
+                ⚠️ 设备地址修改后立即生效；MQTT配置保存后需要重启应用才能生效
               </p>
             </div>
 

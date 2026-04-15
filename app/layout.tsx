@@ -15,8 +15,8 @@ const geistMono = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "诺亚方舟 - 生物识别设备管理平台",
-  description: "IAMS 上级平台，管理虹膜和掌纹设备",
+  title: "诺亚保管库 - 身份认证系统",
+  description: "诺亚保管库身份认证系统",
 };
 
 // 在服务器端初始化应用（只执行一次）
