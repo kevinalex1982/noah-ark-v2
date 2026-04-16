@@ -113,29 +113,15 @@ function SuccessContent() {
 
             {/* 标题 */}
             <h2 className="text-3xl font-black text-gray-900 mb-3" style={{ fontFamily: 'Satoshi, sans-serif' }}>
-              {isDuress ? '认证成功' : isSuccess ? '认证成功' : '认证失败'}
+              {isSuccess || isDuress ? '认证成功' : '认证失败'}
             </h2>
 
-            {/* 用户姓名 */}
-            {isSuccess && personName && (
-              <p className="text-xl text-gray-700 mb-2">
-                欢迎，<span className="font-bold">{personName}</span>
-              </p>
-            )}
-
-            {/* 箱号 */}
-            {isSuccess && boxList && (
-              <p className="text-base text-gray-500 mb-4">
-                箱号：{boxList.split('|').join(', ')}
-              </p>
-            )}
-
             {/* 副标题 */}
-            <p className="text-gray-600 mb-8">
+            <p className="text-gray-600 mb-8 text-lg">
               {isDuress
                 ? '系统已记录本次认证'
                 : isSuccess
-                  ? '祝您使用愉快'
+                  ? '身份验证已通过，祝您使用愉快'
                   : '请重新尝试'}
             </p>
 

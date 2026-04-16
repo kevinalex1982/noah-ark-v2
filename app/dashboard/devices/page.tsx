@@ -62,6 +62,8 @@ export default function DevicesPage() {
   const [deleteIrisSimulating, setDeleteIrisSimulating] = useState(false);
   const [testAddLoading, setTestAddLoading] = useState(false);
   const [testDeleteLoading, setTestDeleteLoading] = useState(false);
+  const [irisUploadLoading, setIrisUploadLoading] = useState(false);
+  const [irisUploadResult, setIrisUploadResult] = useState<{ success: boolean; message: string; data?: any; logs?: string[] } | null>(null);
   const [selectedCredentialId, setSelectedCredentialId] = useState<number | null>(null);
   const [irisCredentials, setIrisCredentials] = useState<{credential_id: number; person_id: string; person_name: string}[]>([]);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
@@ -686,6 +688,43 @@ export default function DevicesPage() {
     }
   }, [selectedCredentialId, irisCredentials, addToast, fetchSyncLogs]);
 
+  // 测试上传虹膜数据（从 data 目录读 JSON 文件直接上传）
+  const handleIrisUploadTest = useCallback(async () => {
+    setIrisUploadLoading(true);
+    setIrisUploadResult(null);
+    try {
+      const response = await fetch('/api/test/iris-upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file: 'iris_test.json' }),
+      });
+      const data = await response.json();
+
+      if (data.success) {
+        setIrisUploadResult({
+          success: true,
+          message: `上传成功！总耗时 ${data.duration_ms}ms`,
+          data: data.response,
+          logs: data.logs || [],
+        });
+        await fetchSyncLogs();
+      } else {
+        setIrisUploadResult({
+          success: false,
+          message: data.error || '上传失败',
+          logs: data.logs || [],
+        });
+      }
+    } catch (error) {
+      setIrisUploadResult({
+        success: false,
+        message: (error as Error).message,
+      });
+    } finally {
+      setIrisUploadLoading(false);
+    }
+  }, [fetchSyncLogs]);
+
   // 模拟更新凭证显示信息
   const handleSimulateUpdateShowInfo = useCallback(async () => {
     try {
@@ -1041,6 +1080,93 @@ export default function DevicesPage() {
                 )}
               </tbody>
             </table>
+          </div>
+        </div>
+
+        {/* 测试区域 */}
+        <div className="bg-white rounded-2xl shadow-xl border-2 border-gray-200 p-6 mt-6">
+          <h2 className="text-xl font-black text-gray-900 mb-4">测试区域</h2>
+
+          {/* 虹膜数据上传测试 - 从 iris_test.json 读取 */}
+          <div className="border border-gray-200 rounded-lg p-4 mb-4">
+            <h3 className="font-bold text-gray-800 mb-2">虹膜数据上传测试</h3>
+            <p className="text-sm text-gray-500 mb-3">
+              完整流程：锁定设备 → 等待8秒 → 上传(memberSave) → 等待500ms → 解锁设备。
+              请将保存的 JSON 文件放到 data 目录并命名为 <code className="bg-gray-100 px-1 rounded">iris_test.json</code>。
+            </p>
+            <div className="flex items-center space-x-3">
+              <button
+                onClick={handleIrisUploadTest}
+                disabled={irisUploadLoading}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                  irisUploadLoading
+                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                    : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm'
+                }`}
+              >
+                {irisUploadLoading ? '上传中...' : '上传虹膜数据'}
+              </button>
+            </div>
+            {irisUploadResult && (
+              <div className={`mt-3 rounded-lg text-sm ${
+                irisUploadResult.success
+                  ? 'bg-green-50 border border-green-200 text-green-800'
+                  : 'bg-red-50 border border-red-200 text-red-800'
+              }`}>
+                <div className="p-3">
+                  <div className="font-bold">{irisUploadResult.success ? '成功' : '失败'}</div>
+                  <div>{irisUploadResult.message}</div>
+                </div>
+                {irisUploadResult.logs && irisUploadResult.logs.length > 0 && (
+                  <div className="border-t border-green-200 bg-white rounded-b-lg">
+                    <div className="px-3 py-2 text-xs font-bold text-gray-500">执行日志：</div>
+                    <pre className="px-3 pb-3 text-xs bg-gray-900 text-green-300 p-3 rounded-b-lg overflow-x-auto max-h-60 whitespace-pre-wrap">
+                      {irisUploadResult.logs.join('\n')}
+                    </pre>
+                  </div>
+                )}
+                {irisUploadResult.data && (
+                  <div className="border-t border-green-200 p-3">
+                    <div className="text-xs font-bold text-gray-500 mb-1">设备响应：</div>
+                    <pre className="text-xs bg-white p-2 rounded overflow-x-auto max-h-40">
+                      {JSON.stringify(irisUploadResult.data, null, 2)}
+                    </pre>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* 虹膜模拟测试（固定凭证ID: 999999） */}
+          <div className="border border-gray-200 rounded-lg p-4">
+            <h3 className="font-bold text-gray-800 mb-2">虹膜模拟测试</h3>
+            <p className="text-sm text-gray-500 mb-3">
+              从 <code className="bg-gray-100 px-1 rounded">data/iris_user_*.json</code> 读取数据，通过完整流程（锁定→上传→解锁）添加到虹膜设备。
+            </p>
+            <div className="flex items-center space-x-3">
+              <button
+                onClick={handleTestIrisAdd}
+                disabled={testAddLoading}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                  testAddLoading
+                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                    : 'bg-green-600 text-white hover:bg-green-700 shadow-sm'
+                }`}
+              >
+                {testAddLoading ? '添加中...' : '虹膜模拟添加'}
+              </button>
+              <button
+                onClick={handleTestIrisDelete}
+                disabled={testDeleteLoading}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                  testDeleteLoading
+                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                    : 'bg-red-600 text-white hover:bg-red-700 shadow-sm'
+                }`}
+              >
+                {testDeleteLoading ? '删除中...' : '虹膜模拟删除'}
+              </button>
+            </div>
           </div>
         </div>
       </main>

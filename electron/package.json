@@ -4,7 +4,7 @@
   "description": "诺亚宝库 - Electron 桌面客户端",
   "main": "dist/main.js",
   "scripts": {
-    "build": "tsc",
+    "build": "cd .. && next build && cd electron && tsc",
     "start": "electron .",
     "dev": "tsc && electron .",
     "pack": "npm run build && electron-builder --dir",
@@ -31,7 +31,7 @@
       {
         "from": "../.next",
         "to": "app/.next",
-        "filter": ["**/*"]
+        "filter": ["**/*", "!dev/**/*", "!.next/cache/**/*"]
       },
       {
         "from": "../app",

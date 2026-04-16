@@ -10,6 +10,7 @@ import { initMqttClient } from './mqtt-client';
 import { initSyncTables } from './sync-queue';
 import { initDefaultDevices } from './init-devices';
 import { startSyncScheduler } from './sync-scheduler';
+import { startDevicePoller } from './device-poller';
 
 let initialized = false;
 
@@ -64,6 +65,9 @@ export async function initApp(): Promise<void> {
 
     // 启动定时同步任务
     startSyncScheduler();
+
+    // 启动设备轮巡（后端自己轮巡掌纹和虹膜设备）
+    startDevicePoller();
 
     initialized = true;
     console.log('[Init] ✅ 应用初始化完成');

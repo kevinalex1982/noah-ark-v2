@@ -7,6 +7,8 @@
 import { NextResponse } from 'next/server';
 import { initDatabase } from '@/lib/database';
 import { getCredentialByCustomId } from '@/lib/db-credentials';
+import { isAesEnabled } from '@/lib/settings';
+import { aesEncrypt } from '@/lib/crypto';
 
 export async function GET(request: Request) {
   try {
@@ -24,6 +26,9 @@ export async function GET(request: Request) {
     // 初始化数据库
     await initDatabase();
 
+    // 如果启用了AES加密，将用户输入的明文编码加密后再比对
+    const encryptedIdentityId = isAesEnabled() ? aesEncrypt(identityId.trim()) : identityId.trim();
+
     // 用 userId (custom_id) 查询凭证
     const credential = await getCredentialByCustomId(userId);
 
@@ -37,7 +42,7 @@ export async function GET(request: Request) {
     }
 
     // 检查 person_id 是否匹配当前用户
-    if (credential.person_id === identityId) {
+    if (credential.person_id === encryptedIdentityId) {
       return NextResponse.json({
         success: true,
         match: true,

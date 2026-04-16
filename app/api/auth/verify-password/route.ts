@@ -9,6 +9,8 @@ import { NextResponse } from 'next/server';
 import { initDatabase } from '@/lib/database';
 import { getCredentialsByPersonId } from '@/lib/db-credentials';
 import { sendWarnEvent } from '@/lib/mqtt-client';
+import { isAesEnabled } from '@/lib/settings';
+import { aesEncrypt } from '@/lib/crypto';
 
 export async function POST(request: Request) {
   try {
@@ -25,8 +27,11 @@ export async function POST(request: Request) {
     // 初始化数据库
     await initDatabase();
 
+    // 如果启用了AES加密，将用户输入的明文编码加密后再查询
+    const queryId = isAesEnabled() ? aesEncrypt(identityId.trim()) : identityId.trim();
+
     // 获取该用户的所有凭证
-    const credentials = await getCredentialsByPersonId(identityId);
+    const credentials = await getCredentialsByPersonId(queryId);
 
     if (credentials.length === 0) {
       return NextResponse.json(

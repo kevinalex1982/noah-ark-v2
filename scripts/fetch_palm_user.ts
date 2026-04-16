@@ -39,6 +39,7 @@ function sendRequest(request: string, userId?: string): Promise<string> {
       port: port,
       path: requestPath,
       method: 'POST',
+      agent: false,
       timeout: 10000,
     }, (res) => {
       let data = '';

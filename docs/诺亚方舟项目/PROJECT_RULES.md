@@ -135,6 +135,44 @@ Start-Process -FilePath "node" `
 
 ---
 
+## 📦 第五条补充：Electron 打包规范 ⭐
+
+### ❌ 错误方式（安装包会膨胀到 500M+）
+
+- 直接把 `.next` 目录全部打进安装包（`.next/dev` 占 800M+）
+- 打包前没有运行 `next build`
+
+### ✅ 正确方式（安装包 200M 左右）
+
+**打包命令**：
+```powershell
+cd noah-ark-v2\electron
+npm run dist
+```
+
+**`electron/package.json` 中 build 脚本已配置**：
+```json
+"build": "cd .. && next build && cd electron && tsc"
+```
+
+流程：
+1. `next build` — 生产构建 `.next`，只生成精简的 production 文件（约 20-30M）
+2. `tsc` — 编译 Electron 的 TypeScript
+
+**打包过滤器已配置**：
+```json
+"filter": ["**/*", "!dev/**/*", "!.next/cache/**/*"]
+```
+
+排除 `.next/dev` 和 `.next/cache`，只保留生产构建产物。
+
+### 每次打包前检查
+
+- [ ] 安装包大小应在 200M 左右，如果超过 300M 说明有问题
+- [ ] 检查 `.next/dev` 是否被排除
+
+---
+
 ## 🚀 第六条：待实现功能 ⚠️
 
 ### 6.1 MQTT 客户端模块 ❌ 未完成

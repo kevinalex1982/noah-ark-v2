@@ -398,8 +398,8 @@ async function recordMqttEvent(deviceId: string, op: string, message: any, crede
     const { existsSync, readFileSync, writeFileSync, mkdirSync } = require('fs');
     const { join } = require('path');
 
-    const filePath = join(process.env.DATA_DIR || process.cwd(), 'mqttevent.json');
-    const dataDir = join(process.env.DATA_DIR || process.cwd());
+    const filePath = join(process.env.DATA_DIR || join(process.cwd(), 'data'), 'mqttevent.json');
+    const dataDir = join(process.env.DATA_DIR || join(process.cwd(), 'data'));
 
     // 确保目录存在
     if (!existsSync(dataDir)) {

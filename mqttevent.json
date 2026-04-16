@@ -1,0 +1,47 @@
+[
+  {
+    "id": "evt-1776302287922",
+    "time": "2026/4/16 09:18:07",
+    "deviceId": "nuoyadev1",
+    "op": "passport-add",
+    "personId": "E+mlDaEP2VIgrZIXIMcUPw==",
+    "credentialId": 623,
+    "credentialType": 5,
+    "authModel": 1,
+    "authTypeList": "",
+    "boxList": "",
+    "showInfo": "欢迎|光临",
+    "tags": "1",
+    "enable": 1
+  },
+  {
+    "id": "evt-1776301524579",
+    "time": "2026/4/16 09:05:24",
+    "deviceId": "nuoyadev1",
+    "op": "passport-add",
+    "personId": "444666",
+    "credentialId": 622,
+    "credentialType": 9,
+    "authModel": 1,
+    "authTypeList": "5,9",
+    "boxList": "",
+    "showInfo": "欢迎|光临",
+    "tags": "1",
+    "enable": 1
+  },
+  {
+    "id": "evt-1776301524046",
+    "time": "2026/4/16 09:05:24",
+    "deviceId": "nuoyadev1",
+    "op": "passport-add",
+    "personId": "444666",
+    "credentialId": 621,
+    "credentialType": 5,
+    "authModel": 1,
+    "authTypeList": "5,9",
+    "boxList": "",
+    "showInfo": "欢迎|光临",
+    "tags": "1",
+    "enable": 1
+  }
+]

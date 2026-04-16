@@ -6,9 +6,8 @@
  */
 
 import http from 'http';
-import { writeFileSync, mkdirSync, existsSync, readFileSync } from 'fs';
-import { join } from 'path';
 import sharp from 'sharp';
+import { getSampleFaceImage } from './sample-face-image';
 import {
   getPendingQueueItems,
   updateQueueStatus,
@@ -36,28 +35,6 @@ const IRIS_DEVICE_CONFIG = {
 
 // memberSave 接口超时
 const IRIS_MEMBER_SAVE_TIMEOUT = 20000; // 20 秒
-
-/**
- * 从文件读取人脸图片
- * 虹膜设备要求必须上传人脸图片，我们使用固定图片
- */
-function getSampleFaceImage(): string {
-  const filePath = join(process.env.DATA_DIR || process.cwd(), 'face_photo_sample.txt');
-
-  try {
-    if (existsSync(filePath)) {
-      const content = readFileSync(filePath, 'utf-8').trim();
-      if (content.length > 1000) {
-        return content;
-      }
-    }
-  } catch (error: any) {
-    console.error(`[设备] 人脸图片读取失败: ${error.message}`);
-  }
-
-  console.warn(`[设备] ⚠️ 人脸图片读取失败，使用默认值`);
-  return '/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA=';
-}
 
 /**
  * 从 content 字段解析虹膜图片
@@ -254,6 +231,7 @@ export async function syncToPalmDeviceMQTT(
         port: port,
         path: path,
         method: 'POST',
+        agent: false,
         timeout: PALM_DEVICE_CONFIG.timeout,
       },
       (res) => {
@@ -334,6 +312,7 @@ export async function deleteFromPalmDeviceMQTT(
         port: port,
         path: path,
         method: 'POST',
+        agent: false,
         timeout: PALM_DEVICE_CONFIG.timeout,
       },
       (res) => {
@@ -544,7 +523,7 @@ export async function syncToIrisDevice(
     purview?: number;
   },
   skipDebugLog?: boolean
-): Promise<{ success: boolean; response?: string; error?: string }> {
+): Promise<{ success: boolean; response?: string; error?: string; code?: number }> {
   const beijingTime = () => new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
 
   // === 检查冷却状态 ===
@@ -596,9 +575,9 @@ export async function syncToIrisDevice(
     }
     console.log(`[${beijingTime()}] [设备] 锁定成功`);
 
-    // 等待1秒
-    console.log(`[${beijingTime()}] [设备] 等待1秒...`);
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    // 等待8秒
+    console.log(`[${beijingTime()}] [设备] 等待8秒...`);
+    await new Promise(resolve => setTimeout(resolve, 8000));
 
     // 2. 上传人员
     console.log(`[${beijingTime()}] [设备] 步骤2: 上传人员...`);
@@ -650,6 +629,12 @@ export async function syncToIrisDevice(
       console.log(`[${beijingTime()}] [设备] ✅ 虹膜添加成功`);
       return { success: true, response: JSON.stringify(responseData) };
     } else {
+      const errorCodeNum = Number(responseData.errorCode);
+      // errorCode 9（人员已存在）或 10（人员不在列表中）返回 405，不保存数据库
+      if (errorCodeNum === 9 || errorCodeNum === 10) {
+        console.log(`[${beijingTime()}] [设备] ❌ 虹膜添加失败: errorCode=${responseData.errorCode}，返回401给IAMS，不保存数据库`);
+        return { success: false, error: '已经存在相同虹膜特征', code: 401 };
+      }
       console.log(`[${beijingTime()}] [设备] ❌ 虹膜添加失败: errorCode=${responseData.errorCode}`);
       return { success: false, error: `errorCode=${responseData.errorCode}` };
     }
@@ -916,7 +901,8 @@ async function clearPalmDeviceOneByOne(
         hostname: host,
         port: port,
         path: queryPath,
-        method: 'POST',  // ⚠️ 掌纹设备必须用 POST！
+        method: 'POST',
+        agent: false,
         timeout: 10000,
       },
       (res) => {
@@ -1376,7 +1362,7 @@ export async function handlePassportAdd(
         iris_left_image: irisLeftImage,
         iris_right_image: irisRightImage,
         palm_feature: palmFeature,
-        auth_type_list: payload.authTypeList?.join(','),
+        auth_type_list: payload.authTypeList?.join(',') || String(payload.credentialType),
       });
     } else {
       console.log('[MQTT-Handler] 设备添加失败，不保存数据库');

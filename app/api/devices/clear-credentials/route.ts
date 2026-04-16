@@ -57,6 +57,7 @@ async function clearPalmDevice(
         port: port,
         path: path,
         method: 'POST',
+        agent: false,
         timeout: 30000,
       },
       (res) => {

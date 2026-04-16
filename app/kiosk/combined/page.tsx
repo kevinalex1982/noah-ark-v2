@@ -1,4 +1,5 @@
-// 组合认证页面 - 真正调用设备API验证
+// 组合认证页面 - 按 authTypeList 顺序依次认证
+// 密码/胁迫码在前（如有），生物识别在后（按 authTypeList 顺序）
 'use client';
 
 import { useState, useEffect, useRef, Suspense, useCallback } from 'react';
@@ -19,122 +20,105 @@ function CombinedContent() {
   const searchParams = useSearchParams();
   const identityId = searchParams.get('identityId') || '';
 
-  const [currentStep, setCurrentStep] = useState<AuthStep>('password');
-  const [completedSteps, setCompletedSteps] = useState<AuthStep[]>([]);
-  const [password, setPassword] = useState('');
-  const [passwordError, setPasswordError] = useState('');
-  const [scanStatus, setScanStatus] = useState<'waiting' | 'scanning' | 'success' | 'error' | 'mismatch'>('waiting');
-  const [mismatchHint, setMismatchHint] = useState(false); // 识别到其他人提示
   const [steps, setSteps] = useState<AuthStep[]>([]);
+  const [currentStep, setCurrentStep] = useState<AuthStep | null>(null);
+  const [completedSteps, setCompletedSteps] = useState<AuthStep[]>([]);
   const [userInfo, setUserInfo] = useState<UserInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [countdown, setCountdown] = useState(60);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
 
+  // 密码状态
+  const [password, setPassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+
+  // 生物识别状态
+  const [scanStatus, setScanStatus] = useState<'waiting' | 'scanning' | 'success' | 'error' | 'mismatch'>('waiting');
+  const [mismatchHint, setMismatchHint] = useState(false);
+
   const pollingRef = useRef(true);
   const lastCreateTimeRef = useRef(0);
-  const irisIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const palmIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const IRIS_POLL_INTERVAL = 3000;
   const PALM_POLL_INTERVAL = 2000;
 
-  const stopPolling = useCallback(() => {
-    pollingRef.current = false;
-    if (irisIntervalRef.current) {
-      clearInterval(irisIntervalRef.current);
-      irisIntervalRef.current = null;
-    }
-    if (palmIntervalRef.current) {
-      clearInterval(palmIntervalRef.current);
-      palmIntervalRef.current = null;
-    }
-  }, []);
-
-  // 获取用户信息
-  const fetchUserInfo = useCallback(async () => {
-    try {
-      const response = await fetch(`/api/credentials?personId=${encodeURIComponent(identityId)}`);
-      const data = await response.json();
-      if (data.success && data.credentials && data.credentials.length > 0) {
-        const cred = data.credentials[0];
-        setUserInfo({
-          personName: cred.person_name || '',
-          boxList: cred.box_list || '',
-          credentialId: cred.credential_id,
-        });
-      }
-    } catch (err) {
-      console.error('获取用户信息失败:', err);
-    }
-  }, [identityId]);
-
-  // 获取设备设置
-  const fetchSettings = useCallback(async () => {
-    try {
-      const response = await fetch('/api/auth/settings');
-      const data = await response.json();
-      if (data.success) {
-        setCountdown(data.settings.authTimeout);
-      }
-    } catch (err) {
-      console.error('获取设置失败:', err);
-    } finally {
-      setSettingsLoaded(true);
-    }
-  }, []);
-
-  // 从 API 获取用户的认证方式，动态生成步骤
+  // 从 API 获取用户的认证方式和认证步骤
   useEffect(() => {
-    const fetchAuthTypes = async () => {
+    const fetchAuthConfig = async () => {
       try {
         const response = await fetch(`/api/auth/types?identityId=${encodeURIComponent(identityId)}`);
         const data = await response.json();
 
         if (data.success) {
-          // authTypes 已经是有效认证类型（后端已处理：authTypeList ∩ 实际凭证类型，排除胁迫码）
-          const validAuthTypes = data.data.authTypes || [];
+          const authTypeList = data.data.authTypeList || [];
+          const hasPasswordType = authTypeList.includes(5) || authTypeList.includes(9);
+          const hasIrisType = authTypeList.includes(7);
+          const hasPalmType = authTypeList.includes(8);
 
-          // 按实际凭证类型顺序生成步骤
+          // 构建步骤：密码在前（如有5或9），生物识别在后（按 authTypeList 顺序）
           const newSteps: AuthStep[] = [];
-          for (const authType of validAuthTypes) {
-            if (authType === 5) newSteps.push('password');
-            else if (authType === 7) newSteps.push('iris');
-            else if (authType === 8) newSteps.push('palm');
+          if (hasPasswordType) newSteps.push('password');
+          // 按 authTypeList 原始顺序添加生物识别
+          for (const type of authTypeList) {
+            if (type === 7) newSteps.push('iris');
+            else if (type === 8) newSteps.push('palm');
           }
 
-          console.log('[组合认证] 有效认证类型:', validAuthTypes);
+          console.log('[组合认证] authTypeList:', authTypeList);
           console.log('[组合认证] 认证步骤:', newSteps);
 
           setSteps(newSteps);
           if (newSteps.length > 0) {
             setCurrentStep(newSteps[0]);
           }
+
+          // 获取用户信息
+          if (data.data.personName) {
+            setUserInfo({
+              personName: data.data.personName || '',
+              boxList: data.data.boxList || '',
+              credentialId: data.data.credentialId || 0,
+            });
+          }
         }
       } catch (error) {
-        console.error('获取认证方式失败:', error);
+        console.error('获取认证配置失败:', error);
       } finally {
         setLoading(false);
       }
     };
 
     if (identityId) {
-      fetchAuthTypes();
-      fetchUserInfo();
+      fetchAuthConfig();
     } else {
       setLoading(false);
     }
-  }, [identityId, fetchUserInfo]);
+  }, [identityId]);
 
-  // 加载设置
+  // 获取设备设置
   useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const response = await fetch('/api/auth/settings');
+        const data = await response.json();
+        if (data.success) {
+          setCountdown(data.settings.authTimeout);
+        }
+      } catch (err) {
+        console.error('获取设置失败:', err);
+      } finally {
+        setSettingsLoaded(true);
+      }
+    };
     fetchSettings();
-  }, [fetchSettings]);
+  }, []);
+
+  const stopPolling = useCallback(() => {
+    pollingRef.current = false;
+  }, []);
 
   // 跳转到成功页面
   const goToSuccess = useCallback(async () => {
-    // 上传通行记录到IAMS
-    // 组合认证：authTypes为所有完成的步骤，用逗号分隔
     const authTypes = completedSteps.map(step => {
       if (step === 'password') return 'password';
       if (step === 'iris') return 'iris';
@@ -142,6 +126,7 @@ function CombinedContent() {
       return step;
     });
 
+    // 上传通行记录
     try {
       const uploadResponse = await fetch('/api/pass-log/upload', {
         method: 'POST',
@@ -178,8 +163,6 @@ function CombinedContent() {
     const startTime = Date.now();
     const timeoutMs = countdown * 1000;
 
-    // 发送开始识别指令（可选，如果设备需要）
-
     while (pollingRef.current && Date.now() - startTime < timeoutMs) {
       if (!pollingRef.current) break;
 
@@ -200,16 +183,16 @@ function CombinedContent() {
         if (result.success && result.data) {
           const data = result.data;
           if (data.errorCode === 0 && data.body && data.body.length > 0) {
-            // 更新 lastCreateTime
             const lastRecord = data.body[data.body.length - 1];
             if (lastRecord && lastRecord.createTime) {
               lastCreateTimeRef.current = lastRecord.createTime;
             }
 
-            // 检查匹配
             let foundOther = false;
             for (const record of data.body) {
               if (record.success && record.type === 1) {
+                // 需要比对 identityId（明文）与 record.staffNum（可能也是明文）
+                // 虹膜设备返回的 staffNum 是原始值，不是加密的
                 if (record.staffNum === identityId) {
                   console.log('[组合虹膜] 识别成功');
                   setScanStatus('success');
@@ -218,7 +201,6 @@ function CombinedContent() {
                   handleBiometricComplete('iris');
                   return;
                 } else {
-                  // 识别到其他人
                   foundOther = true;
                   console.log('[组合虹膜] 识别到其他人:', record.staffNum);
                 }
@@ -226,7 +208,6 @@ function CombinedContent() {
             }
             if (foundOther) {
               setMismatchHint(true);
-              // 2秒后隐藏提示，继续等待
               setTimeout(() => setMismatchHint(false), 3000);
             }
           }
@@ -279,16 +260,11 @@ function CombinedContent() {
           const { code, des } = result.data;
 
           if (code === 200 && des) {
-            // 验证 userId 匹配
-            const verifyResponse = await fetch('/api/auth/verify-palm', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ userId: des, personId: identityId }),
-            });
-
+            // 验证 userId 是否匹配当前用户
+            const verifyResponse = await fetch(`/api/auth/verify-palm?userId=${encodeURIComponent(des)}&identityId=${encodeURIComponent(identityId)}`);
             const verifyResult = await verifyResponse.json();
 
-            if (verifyResult.success) {
+            if (verifyResult.success && verifyResult.match) {
               console.log('[组合掌纹] 识别成功');
               // 发送停止指令
               await fetch('/api/device/palm/query', {
@@ -302,11 +278,10 @@ function CombinedContent() {
               handleBiometricComplete('palm');
               return;
             } else {
-              console.log('[组合掌纹] 用户不匹配，重新开始识别');
-              // 显示提示
+              console.log('[组合掌纹] 用户不匹配');
               setMismatchHint(true);
               setTimeout(() => setMismatchHint(false), 3000);
-              // 用户不匹配，发送停止后重新开始
+              // 发送停止后重新开始
               await fetch('/api/device/palm/query', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -343,6 +318,7 @@ function CombinedContent() {
 
   // 切换到生物识别步骤时启动轮询
   useEffect(() => {
+    if (!currentStep) return;
     if (currentStep === 'iris' && !completedSteps.includes('iris')) {
       startIrisPolling();
       return () => stopPolling();
@@ -360,7 +336,35 @@ function CombinedContent() {
     }
   };
 
-  // 密码验证 - 真正调用API
+  const getStepIcon = (step: AuthStep) => {
+    switch (step) {
+      case 'password':
+        return (
+          <svg className="w-12 h-12 text-gray-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                  d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+          </svg>
+        );
+      case 'iris':
+        return (
+          <svg className="w-12 h-12 text-gray-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                  d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                  d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+          </svg>
+        );
+      case 'palm':
+        return (
+          <svg className="w-12 h-12 text-gray-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                  d="M7 11.5V14m0-2.5v-6a1.5 1.5 0 113 0m-3 6a1.5 1.5 0 00-3 0v2a7.5 7.5 0 0015 0v-5a1.5 1.5 0 00-3 0m-6-3V11m0-5.5v-1a1.5 1.5 0 013 0v1m0 0V11m0-5.5a1.5 1.5 0 013 0v3m0 0V11"/>
+          </svg>
+        );
+    }
+  };
+
+  // 密码验证
   const handlePasswordSubmit = useCallback(async () => {
     if (password.length < 4) {
       setPasswordError('密码至少4位');
@@ -380,12 +384,30 @@ function CombinedContent() {
       const result = await response.json();
 
       if (result.success) {
-        console.log('[组合密码] 验证成功');
-
-        // ⚠️ 如果是胁迫码触发，直接跳转成功页面（胁迫码视为正确密码）
-        // 告警已在 API 中发送
+        // 胁迫码触发：直接跳转成功
         if (result.isDuress) {
-          console.log('[组合密码] 胁迫码触发，直接跳转成功页面');
+          console.log('[组合认证] 胁迫码触发，直接跳转成功');
+          // 更新 userInfo
+          if (result.personName) {
+            setUserInfo({
+              personName: result.personName || '',
+              boxList: result.boxList || '',
+              credentialId: result.credentialId || 0,
+            });
+          }
+          // 上传通行记录
+          try {
+            await fetch('/api/pass-log/upload', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                personId: identityId,
+                credentialId: result.credentialId || 0,
+                authTypes: ['password'],
+              }),
+            });
+          } catch (err) {}
+
           const params = new URLSearchParams({
             result: 'success',
             name: result.personName || userInfo?.personName || '',
@@ -395,9 +417,12 @@ function CombinedContent() {
           return;
         }
 
+        // 正常密码通过
+        console.log('[组合密码] 验证成功');
         setScanStatus('success');
-        setCompletedSteps([...completedSteps, 'password']);
-        const currentIndex = steps.indexOf(currentStep);
+        setCompletedSteps(prev => [...prev, 'password']);
+
+        const currentIndex = steps.indexOf(currentStep!);
         if (currentIndex < steps.length - 1) {
           setCurrentStep(steps[currentIndex + 1]);
           setPassword('');
@@ -413,10 +438,10 @@ function CombinedContent() {
       setPasswordError('验证失败: ' + error.message);
       setScanStatus('waiting');
     }
-  }, [password, identityId, completedSteps, currentStep, steps, goToSuccess, router, userInfo]);
+  }, [password, identityId, currentStep, steps, goToSuccess, router, userInfo]);
 
   const handleBiometricComplete = useCallback((step: AuthStep) => {
-    setCompletedSteps([...completedSteps, step]);
+    setCompletedSteps(prev => [...prev, step]);
     const currentIndex = steps.indexOf(step);
     if (currentIndex < steps.length - 1) {
       setCurrentStep(steps[currentIndex + 1]);
@@ -424,21 +449,22 @@ function CombinedContent() {
     } else {
       goToSuccess();
     }
-  }, [completedSteps, steps, goToSuccess]);
+  }, [steps, goToSuccess]);
 
   const handleBack = useCallback(() => {
     stopPolling();
+    if (!currentStep) return;
     const currentIndex = steps.indexOf(currentStep);
     if (currentIndex > 0) {
       setCurrentStep(steps[currentIndex - 1]);
-      setCompletedSteps(completedSteps.slice(0, -1));
+      setCompletedSteps(prev => prev.slice(0, -1));
       setPassword('');
       setPasswordError('');
       setScanStatus('waiting');
     } else {
       router.push(`/kiosk/select?identityId=${encodeURIComponent(identityId)}`);
     }
-  }, [currentStep, steps, completedSteps, stopPolling, router, identityId]);
+  }, [currentStep, steps, stopPolling, router, identityId]);
 
   // 倒计时
   useEffect(() => {
@@ -469,6 +495,44 @@ function CombinedContent() {
     );
   }
 
+  if (steps.length === 0) {
+    return (
+      <main className="min-h-screen gradient-subtle flex flex-col">
+        <header className="w-full py-4 px-8 bg-white/50 backdrop-blur-sm border-b border-gray-200">
+          <div className="max-w-5xl mx-auto flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 rounded-xl bg-gray-900 flex items-center justify-center">
+                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                        d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+                </svg>
+              </div>
+              <h1 className="text-2xl font-black text-gray-900" style={{ fontFamily: 'Satoshi, sans-serif' }}>
+                诺亚保管库
+              </h1>
+            </div>
+          </div>
+        </header>
+        <main className="flex-1 flex items-center justify-center p-6">
+          <div className="bg-white rounded-2xl shadow-xl border border-gray-200 p-10 text-center">
+            <div className="w-16 h-16 rounded-full bg-red-50 flex items-center justify-center mx-auto mb-4">
+              <svg className="w-8 h-8 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                      d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+              </svg>
+            </div>
+            <h2 className="text-xl font-bold text-gray-900 mb-2">无可用认证方式</h2>
+            <p className="text-gray-600 mb-6">该用户没有配置有效的认证凭证</p>
+            <a href="/kiosk" className="text-gray-500 hover:text-gray-900 text-sm font-medium transition-colors">
+              ← 返回首页
+            </a>
+          </div>
+        </main>
+        <Footer />
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-screen gradient-subtle flex flex-col">
       {/* 顶部导航区 */}
@@ -477,7 +541,7 @@ function CombinedContent() {
           <div className="flex items-center space-x-3">
             <div className="w-10 h-10 rounded-xl bg-gray-900 flex items-center justify-center">
               <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} 
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                       d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
               </svg>
             </div>
@@ -502,50 +566,51 @@ function CombinedContent() {
             </div>
 
             {/* 标题 */}
-            <h2 className="text-2xl md:text-3xl font-black text-gray-900 text-center mb-6" 
+            <h2 className="text-2xl md:text-3xl font-black text-gray-900 text-center mb-6"
                 style={{ fontFamily: 'Satoshi, sans-serif' }}>
               组合认证
             </h2>
-            
+
             {/* 进度指示器 */}
             <div className="flex justify-center mb-8">
               <div className="flex items-center space-x-2">
                 {steps.map((step, index) => (
                   <div key={step} className="flex items-center">
                     <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold transition-all duration-300
-                                  ${completedSteps.includes(step) 
-                                    ? 'bg-green-500 text-white scale-110' 
-                                    : currentStep === step 
-                                      ? 'bg-gray-900 text-white scale-110 animate-pulse' 
+                                  ${completedSteps.includes(step)
+                                    ? 'bg-green-500 text-white scale-110'
+                                    : currentStep === step
+                                      ? 'bg-gray-900 text-white scale-110 animate-pulse'
                                       : 'bg-gray-200 text-gray-500'}`}>
                       {completedSteps.includes(step) ? '✓' : index + 1}
                     </div>
                     {index < steps.length - 1 && (
-                      <div className={`w-12 h-1 transition-all duration-500 
+                      <div className={`w-12 h-1 transition-all duration-500
                                     ${completedSteps.includes(step) && completedSteps.includes(steps[index + 1])
-                                              ? 'bg-green-500' 
+                                              ? 'bg-green-500'
                                               : 'bg-gray-200'}`}></div>
                     )}
                   </div>
                 ))}
               </div>
             </div>
-            
+
             {/* 当前步骤 */}
             <div className="text-center mb-6">
               <p className="text-gray-600 text-sm mb-2">
-                步骤 {steps.indexOf(currentStep) + 1} / {steps.length}
+                步骤 {currentStep ? steps.indexOf(currentStep) + 1 : 0} / {steps.length}
               </p>
-              <h3 className="text-xl font-black text-gray-900" style={{ fontFamily: 'Satoshi, sans-serif' }}>
-                {getStepName(currentStep)}
-              </h3>
+              {currentStep && (
+                <h3 className="text-xl font-black text-gray-900" style={{ fontFamily: 'Satoshi, sans-serif' }}>
+                  {getStepName(currentStep)}
+                </h3>
+              )}
             </div>
-            
+
             {/* 认证内容 */}
             <div className="mb-6">
               {currentStep === 'password' && (
                 <div className="animate-fade-in">
-                  {/* 密码错误提示 */}
                   {passwordError && (
                     <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-red-600 text-sm text-center">
                       {passwordError}
@@ -554,14 +619,11 @@ function CombinedContent() {
                   <input
                     type="password"
                     value={password}
-                    onChange={(e) => {
-                      setPasswordError('');
-                      setPassword(e.target.value);
-                    }}
-                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl text-lg text-center tracking-widest
-                             focus:border-gray-900 focus:outline-none transition-colors mb-4"
+                    readOnly
+                    className={`w-full px-4 py-3 border-2 rounded-xl text-lg text-center tracking-widest
+                             focus:outline-none transition-colors mb-4
+                             ${passwordError ? 'border-red-500' : 'border-gray-200 focus:border-gray-900'}`}
                     placeholder="请输入密码"
-                    disabled={scanStatus === 'scanning'}
                   />
                   <div className="grid grid-cols-3 gap-2">
                     {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) => (
@@ -614,10 +676,9 @@ function CombinedContent() {
                   </div>
                 </div>
               )}
-              
+
               {currentStep === 'iris' && (
                 <div className="text-center py-8 animate-fade-in">
-                  {/* 虹膜扫描动画 */}
                   <div className="w-32 h-32 mx-auto mb-6 relative">
                     <div className={`absolute inset-0 border-4 border-gray-200 rounded-full
                                   ${scanStatus === 'scanning' ? 'animate-spin' : ''}`}
@@ -674,7 +735,6 @@ function CombinedContent() {
 
               {currentStep === 'palm' && (
                 <div className="text-center py-8 animate-fade-in">
-                  {/* 掌纹扫描动画 */}
                   <div className="w-32 h-32 mx-auto mb-6 relative">
                     <div className={`absolute inset-0 border-4 border-gray-200 rounded-3xl
                                   ${scanStatus === 'scanning' ? 'animate-pulse' : ''}`}>
@@ -723,7 +783,7 @@ function CombinedContent() {
                 </div>
               )}
             </div>
-            
+
             {/* 按钮 */}
             <div className="flex space-x-4">
               <button
@@ -731,7 +791,7 @@ function CombinedContent() {
                 className="flex-1 px-4 py-4 bg-gray-100 text-gray-900 rounded-xl font-bold text-base
                          hover:bg-gray-200 transition-all active:scale-95 transform"
               >
-                {steps.indexOf(currentStep) === 0 ? '返回' : '上一步'}
+                {currentStep && steps.indexOf(currentStep) === 0 ? '返回' : '上一步'}
               </button>
               {currentStep === 'password' && (
                 <button

@@ -12,6 +12,7 @@ import { syncToIrisDevice } from '@/lib/device-sync';
 import { upsertCredential } from '@/lib/db-credentials';
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
+import { SAMPLE_FACE_IMAGE_BASE64 } from '@/lib/sample-face-image';
 
 // 固定的测试凭证ID
 const TEST_CREDENTIAL_ID = 999999;
@@ -71,12 +72,8 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // 读取人脸图片
-    let faceImage = '';
-    const faceFilePath = join(process.cwd(), 'data', 'face_photo_sample.txt');
-    if (existsSync(faceFilePath)) {
-      faceImage = readFileSync(faceFilePath, 'utf-8').trim();
-    }
+    // 读取人脸图片（使用硬编码样本）
+    let faceImage = SAMPLE_FACE_IMAGE_BASE64;
 
     // ⚠️ 先同步设备
     console.log(`[TestIrisAdd] 先同步设备: personId=${staffNum}`);

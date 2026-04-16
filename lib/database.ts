@@ -247,10 +247,11 @@ export async function findByUserCode(userCode: string): Promise<{
   personId: string;
   personName: string;
   authTypeList: number[];
+  authModel: number;
 } | null> {
   const database = getDatabase();
   const result = await database.execute({
-    sql: 'SELECT DISTINCT person_id, person_name, auth_type_list FROM credentials WHERE person_id = ? AND enable = 1 LIMIT 1',
+    sql: 'SELECT DISTINCT person_id, person_name, auth_type_list, auth_model FROM credentials WHERE person_id = ? AND enable = 1 LIMIT 1',
     args: [userCode]
   });
 
@@ -267,6 +268,7 @@ export async function findByUserCode(userCode: string): Promise<{
   return {
     personId: row.person_id as string,
     personName: row.person_name as string,
-    authTypeList: authTypeList
+    authTypeList: authTypeList,
+    authModel: (row.auth_model as number) ?? 1,
   };
 }

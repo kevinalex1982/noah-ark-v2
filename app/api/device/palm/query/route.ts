@@ -32,6 +32,7 @@ export async function POST(request: Request) {
           port: port,
           path: path,
           method: 'POST',
+          agent: false,
           timeout: 5000,
         },
         (res) => {

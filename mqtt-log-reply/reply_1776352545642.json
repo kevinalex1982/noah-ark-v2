@@ -1,0 +1,17 @@
+{
+  "sendTime": "2026-04-16T15:15:45.643Z",
+  "topic": "sys/face/nuoyadevhome/up/passport-add",
+  "payload": {
+    "time": 1776352545642,
+    "requestId": "975876dca12745dea385c62ca342ad6d",
+    "deviceId": "nuoyadevhome",
+    "op": "passport-add",
+    "data": {
+      "code": 401,
+      "msg": "已经存在相同虹膜特征",
+      "passportVer": "nuoyadevhomef497fba8053344068929d20214b2be3c",
+      "opId": "31",
+      "personType": "n"
+    }
+  }
+}

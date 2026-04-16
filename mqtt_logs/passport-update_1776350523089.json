@@ -1,0 +1,32 @@
+{
+  "receiveTime": "2026-04-16T14:42:03.085Z",
+  "latencyMs": 0,
+  "topic": "sys/face/nuoyadevhome/down/passport-update",
+  "deviceId": "nuoyadevhome",
+  "message": {
+    "op": "passport-update",
+    "data": {
+      "boxList": "",
+      "showInfo": [
+        "欢迎",
+        "光临"
+      ],
+      "opId": "28",
+      "type": 8,
+      "tags": [
+        1
+      ],
+      "authTypeList": "7,8",
+      "authModel": 2,
+      "passportVer": "nuoyadevhomef497fba8053344068929d20214b2be3c",
+      "enable": 1,
+      "personId": "xZKkRXb6ZEWjeILzhp+e/A==",
+      "id": 632,
+      "personType": "n"
+    },
+    "deviceId": "nuoyadevhome",
+    "requestId": "51cd21f89bdd4233b9cc1781934a309b",
+    "time": 1776350523634
+  },
+  "payloadSize": 374
+}
