@@ -78,3 +78,6 @@ Desktop.ini
 
 /skills
 .codepilot-uploads
+/mqtt_logs
+/mqtt-log-reply
+
