@@ -11,12 +11,44 @@ import { handlePassportAdd, handlePassportUpdate, handlePassportDelete, clearIri
 import { getMqttBroker, getMqttUsername, getMqttPassword, getDeviceId } from './settings';
 import { getDeviceAttrs, updateDeviceAttrs, clearPassportVer } from './db-device-attrs';
 import { clearAllCredentials, upsertCredential, updateCredentialAttributes, getCredentialById, deleteCredential } from './db-credentials';
-import { writeFileSync, mkdirSync, existsSync, readFileSync } from 'fs';
+import { writeFileSync, mkdirSync, existsSync, readFileSync, readdirSync, unlinkSync } from 'fs';
 import { join } from 'path';
 
 // 东八区时间格式化
 function bjt(): string {
   return new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
+}
+
+// ⚠️ 保存 IAMS 下发数据到文件（用于排查问题）
+// 最多保留 10 个文件，存放在 DATA_DIR/iams_payloads/ 下
+function saveIamsPayload(message: any): void {
+  try {
+    const dataDir = process.env.DATA_DIR || process.cwd();
+    const saveDir = join(dataDir, 'iams_payloads');
+
+    if (!existsSync(saveDir)) {
+      mkdirSync(saveDir, { recursive: true });
+    }
+
+    // 清理超过 10 个的旧文件
+    const files = readdirSync(saveDir).filter(f => f.endsWith('.json')).sort();
+    while (files.length >= 10) {
+      const oldest = files.shift()!;
+      unlinkSync(join(saveDir, oldest));
+      console.log(`[IAMS] 清理旧 payload: ${oldest}`);
+    }
+
+    // 保存新文件
+    const timestamp = Date.now();
+    const op = message.op || 'unknown';
+    const type = message.data?.type || 'unknown';
+    const typeLabel = type === 7 ? 'iris' : type === 8 ? 'palm' : `type${type}`;
+    const fileName = `${timestamp}_${op}_${typeLabel}.json`;
+    writeFileSync(join(saveDir, fileName), JSON.stringify(message, null, 2), 'utf-8');
+    console.log(`[IAMS] 保存 payload: ${fileName}`);
+  } catch (e: any) {
+    console.error(`[IAMS] 保存 payload 失败: ${e.message}`);
+  }
 }
 
 // 简单内存队列
@@ -143,6 +175,11 @@ async function processMessage(
   // 判断是否需要操作物理设备
   const needDevice = credentialType === 7 || credentialType === 8;  // 虹膜或掌纹
 
+  // ⚠️ 保存 IAMS 下发的虹膜/掌纹完整数据到文件
+  if (needDevice && (op === 'passport-add' || op === 'passport-update')) {
+    saveIamsPayload(message);
+  }
+
   // 如果需要设备，获取对应的设备配置
   let device: any = null;
   if (needDevice) {
@@ -200,7 +237,19 @@ async function processMessage(
     device_id: deviceId,
     credential_id: data.id,
     action: op,  // passport-add, passport-update, passport-del
-    payload: payload,
+    // ⚠️ 不存储大字段，避免 sync_queue 膨胀
+    payload: {
+      personId: payload.personId,
+      personName: payload.personName,
+      credentialId: payload.credentialId,
+      credentialType: payload.credentialType,
+      authTypeList: payload.authTypeList,
+      showInfo: payload.showInfo,
+      tags: payload.tags,
+      enable: payload.enable,
+      authModel: payload.authModel,
+      boxList: payload.boxList,
+    },
   }) : 0;
 
   if (needSyncLog) {
@@ -502,11 +551,13 @@ function parseIrisContent(content: string): { leftIris: string; rightIris: strin
 }
 
 // ⚠️ 关键：使用全局变量保存 MQTT 客户端，避免 Next.js HMR 重置
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 declare global {
   var mqttClientGlobal: {
     client: MqttClient | null;
     isConnected: boolean;
     initError: Error | null;
+    lastHeartbeat: any | null;  // 最近一次心跳内容
   } | undefined;
 }
 
@@ -516,6 +567,7 @@ if (!global.mqttClientGlobal) {
     client: null,
     isConnected: false,
     initError: null,
+    lastHeartbeat: null,
   };
   console.log(`[${bjt()}] [MQTT] 初始化全局变量`);
 }
@@ -585,6 +637,9 @@ async function reportStatus(): Promise<void> {
       warnRulerList: warnRulerIds,
     },
   };
+
+  // 保存到全局变量供 UI 查看
+  global.mqttClientGlobal.lastHeartbeat = message;
 
   const topic = `${TOPIC_PREFIX}/${deviceId}/up/report-status`;
 
@@ -748,18 +803,18 @@ function subscribeToTopics(client: MqttClient): void {
   const { getDeviceId } = require('./settings');
   const deviceId = getDeviceId();
 
-  // 订阅凭证下发主题（通配符匹配所有设备）
+  // 订阅凭证下发主题（使用具体 deviceId，不接收其他设备的指令）
   const topics = [
-    `${TOPIC_PREFIX}/+/down/passport-add`,      // 凭证新增
-    `${TOPIC_PREFIX}/+/down/passport-update`,    // 凭证更新
-    `${TOPIC_PREFIX}/+/down/passport-del`,       // ⚠️ 凭证删除（不是 passport-delete）
-    `${TOPIC_PREFIX}/+/down/device-config`,      // 设备配置
-    `${TOPIC_PREFIX}/+/down/attr-set`,           // ⚠️ IAMS配置项下发
-    `${TOPIC_PREFIX}/+/down/reset-passport`,     // ⚠️ IAMS重置凭证库
-    `${TOPIC_PREFIX}/${deviceId}/up/pass-log`,   // 🧪 模拟IAMS接收通行记录（使用配置的设备ID）
+    `${TOPIC_PREFIX}/${deviceId}/down/passport-add`,      // 凭证新增
+    `${TOPIC_PREFIX}/${deviceId}/down/passport-update`,    // 凭证更新
+    `${TOPIC_PREFIX}/${deviceId}/down/passport-del`,       // ⚠️ 凭证删除（不是 passport-delete）
+    `${TOPIC_PREFIX}/${deviceId}/down/device-config`,      // 设备配置
+    `${TOPIC_PREFIX}/${deviceId}/down/attr-set`,           // ⚠️ IAMS配置项下发
+    `${TOPIC_PREFIX}/${deviceId}/down/reset-passport`,     // ⚠️ IAMS重置凭证库
+    `${TOPIC_PREFIX}/${deviceId}/up/pass-log`,             // 🧪 模拟IAMS接收通行记录（使用配置的设备ID）
   ];
 
-  console.log(`[MQTT] 订阅通行记录主题，设备ID: ${deviceId}`);
+  console.log(`[MQTT] 订阅主题（设备ID: ${deviceId}），不再使用通配符`);
 
   client.subscribe(topics, { qos: 1 }, (err) => {
     if (err) {
@@ -785,7 +840,7 @@ async function handleMessage(topic: string, payload: Buffer): Promise<void> {
     return;
   }
 
-  const deviceId = topicParts[2];
+  const topicDeviceId = topicParts[2];
   const direction = topicParts[3]; // up 或 down
   const action = topicParts[4];
 
@@ -797,6 +852,18 @@ async function handleMessage(topic: string, payload: Buffer): Promise<void> {
     console.error(`[MQTT] JSON解析失败`);
     return;
   }
+
+  // ⚠️ 关键校验：消息中的 deviceId 必须和当前配置的设备ID匹配
+  // 防止收到其他设备的指令（如重置凭证库、删除凭证等）
+  const { getDeviceId } = require('./settings');
+  const myDeviceId = getDeviceId();
+  if (topicDeviceId !== myDeviceId) {
+    console.log(`${bjt()} [MQTT] ⚠️ 忽略非本设备消息: topicDeviceId=${topicDeviceId}, myDeviceId=${myDeviceId}, action=${action}`);
+    return;
+  }
+
+  // 校验通过，使用 topicDeviceId 作为 deviceId（和 myDeviceId 一致）
+  const deviceId = topicDeviceId;
 
   // 🧪 模拟IAMS响应：收到上行 pass-log 消息，自动回复成功响应
   if (direction === 'up' && action === 'pass-log') {
@@ -822,53 +889,76 @@ async function handleMessage(topic: string, payload: Buffer): Promise<void> {
     return; // 不走队列处理
   }
 
-  // ⚠️ IAMS配置项下发：收到 attr-set 消息，存入数据库并发送响应
+  // ⚠️ IAMS配置项下发：收到 attr-set 消息，存起来并回复成功
+  // 不管发什么字段，永远返回 code=200，不判断失败
   if (action === 'attr-set') {
     console.log(`${bjt()} [MQTT] 收到配置下发 (attr-set)`);
 
-    try {
-      // 存入数据库（使用顶部导入的 updateDeviceAttrs）
-      await updateDeviceAttrs({
-        passportVer: message.data?.passportVer,
-        model: message.data?.model,
-        doorModel: message.data?.doorModel,
-        passRulerList: message.data?.passRulerList,
-        warnRulerList: message.data?.warnRulerList,
-      });
+    const reqData = message.data || {};
+    const setKeys = Object.keys(reqData);
 
-      console.log(`${bjt()} [MQTT] 配置已保存`);
+    // 逐个字段处理，全部存起来，不判断失败
+    const result: Record<string, any> = {};
 
-      // ⚠️ 必须响应，否则IAMS认为设备异常
-      const responsePayload = {
-        time: Date.now(),
-        requestId: message.requestId,
-        deviceId: deviceId,
-        op: 'attr-set',
-        data: {
-          code: 200,
-          msg: 'success',
+    for (const key of setKeys) {
+      switch (key) {
+        case 'deviceTime': {
+          // 尝试设置系统时间（不保证成功，不崩溃）
+          const ts = reqData[key];
+          if (typeof ts === 'number' && ts > 0) {
+            try {
+              const { execSync } = require('child_process');
+              const date = new Date(ts);
+              const cmd = `powershell -Command "Set-Date -Date '${date.toISOString()}'"`;
+              execSync(cmd, { timeout: 5000, encoding: 'utf-8' });
+              console.log(`${bjt()} [MQTT] 系统时间已设置: ${date.toISOString()}`);
+            } catch (timeErr: any) {
+              console.log(`${bjt()} [MQTT] 设置系统时间失败（忽略）: ${timeErr.message}`);
+            }
+          }
+          result[key] = reqData[key];
+          break;
         }
-      };
 
-      await publishUpstream(deviceId, 'attr-set', responsePayload);
-      console.log(`${bjt()} [MQTT] 配置响应已发送`);
-    } catch (e: any) {
-      console.error(`${bjt()} [MQTT] 配置处理失败: ${e.message}`);
-
-      // 失败也要响应
-      const responsePayload = {
-        time: Date.now(),
-        requestId: message.requestId,
-        deviceId: deviceId,
-        op: 'attr-set',
-        data: {
-          code: 500,
-          msg: e.message,
+        default: {
+          // 其他字段全部存数据库
+          try {
+            const { updateDeviceAttrs } = await import('./db-device-attrs');
+            if (key === 'passportVer') {
+              await updateDeviceAttrs({ passportVer: reqData[key] });
+            } else if (key === 'model') {
+              await updateDeviceAttrs({ model: reqData[key] });
+            } else if (key === 'doorModel') {
+              await updateDeviceAttrs({ doorModel: reqData[key] });
+            } else if (key === 'passRulerList') {
+              await updateDeviceAttrs({ passRulerList: reqData[key] });
+            } else if (key === 'warnRulerList') {
+              await updateDeviceAttrs({ warnRulerList: reqData[key] });
+            }
+          } catch (dbErr: any) {
+            console.log(`${bjt()} [MQTT] 字段 ${key} 存储失败（忽略）: ${dbErr.message}`);
+          }
+          result[key] = reqData[key];
+          break;
         }
-      };
-
-      await publishUpstream(deviceId, 'attr-set', responsePayload);
+      }
     }
+
+    // 永远返回成功
+    const responsePayload = {
+      time: Date.now(),
+      requestId: message.requestId,
+      deviceId: deviceId,
+      op: 'attr-set',
+      data: {
+        code: 200,
+        msg: '',
+        result: result,
+      }
+    };
+
+    await publishUpstream(deviceId, 'attr-set', responsePayload);
+    console.log(`${bjt()} [MQTT] attr-set 响应已发送: code=200`);
 
     return; // 不走队列处理
   }
@@ -1135,7 +1225,7 @@ export async function sendWarnEvent(payload: {
       warnType: 1,
       passportId: payload.credentialId,
       createTime: now,
-      warnLevel: 1,
+      warnLevel: 4,
       warnEventId: 1,
       warnContent: payload.warnContent || '胁迫码报警'
     }
@@ -1178,6 +1268,13 @@ export function getInitError(): Error | null {
  */
 export function getMqttClient(): MqttClient | null {
   return global.mqttClientGlobal?.client ?? null;
+}
+
+/**
+ * 获取最近一次心跳内容（用于 UI 查看）
+ */
+export function getLastHeartbeat(): any | null {
+  return global.mqttClientGlobal?.lastHeartbeat ?? null;
 }
 
 /**

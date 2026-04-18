@@ -37,7 +37,21 @@ function CombinedContent() {
   const [mismatchHint, setMismatchHint] = useState(false);
 
   const pollingRef = useRef(true);
-  const lastCreateTimeRef = useRef(0);
+  // 用 ref 追踪已完成的步骤，避免闭包读取旧值
+  const completedStepsRef = useRef<AuthStep[]>([]);
+  // 用 ref 追踪最新的 steps，解决 polling 闭包中 steps 过期的问题
+  const stepsRef = useRef(steps);
+  stepsRef.current = steps;
+  // 用 ref 追踪最新的 goToSuccess，handleBiometricComplete 使用
+  const goToSuccessRef = useRef<(() => void) | null>(null);
+  // 用 ref 追踪最新的 userInfo 和 identityId，避免 goToSuccess 依赖变化
+  const userInfoRef = useRef<UserInfo | null>(null);
+  const identityIdRef = useRef<string>('');
+  // 用 ref 追踪 countdown，避免 polling 函数依赖 countdown 导致每秒重新创建
+  const countdownRef = useRef(60);
+  countdownRef.current = countdown;
+  // 保存初始 authTimeout，用于每步重置
+  const [initialAuthTimeout, setInitialAuthTimeout] = useState(60);
 
   const IRIS_POLL_INTERVAL = 3000;
   const PALM_POLL_INTERVAL = 2000;
@@ -51,7 +65,7 @@ function CombinedContent() {
 
         if (data.success) {
           const authTypeList = data.data.authTypeList || [];
-          const hasPasswordType = authTypeList.includes(5) || authTypeList.includes(9);
+          const hasPasswordType = authTypeList.includes(5);
           const hasIrisType = authTypeList.includes(7);
           const hasPalmType = authTypeList.includes(8);
 
@@ -67,19 +81,35 @@ function CombinedContent() {
           console.log('[组合认证] authTypeList:', authTypeList);
           console.log('[组合认证] 认证步骤:', newSteps);
 
+          // 写日志：初始化步骤
+          fetch('/api/combined-auth-log', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'init',
+              step: 'n/a',
+              completedSteps: [],
+              currentIndex: -1,
+              totalSteps: newSteps.length,
+              scanStatus: 'waiting',
+              nextAction: `steps_set_${JSON.stringify(newSteps)}`,
+            }),
+          }).catch(() => {});
+
           setSteps(newSteps);
           if (newSteps.length > 0) {
             setCurrentStep(newSteps[0]);
           }
 
           // 获取用户信息
-          if (data.data.personName) {
-            setUserInfo({
-              personName: data.data.personName || '',
-              boxList: data.data.boxList || '',
-              credentialId: data.data.credentialId || 0,
-            });
-          }
+          const newUserInfo = {
+            personName: data.data.personName || '',
+            boxList: data.data.boxList || '',
+            credentialId: data.data.credentialId || 0,
+          };
+          setUserInfo(newUserInfo);
+          userInfoRef.current = newUserInfo;
+          identityIdRef.current = identityId;
         }
       } catch (error) {
         console.error('获取认证配置失败:', error);
@@ -103,6 +133,7 @@ function CombinedContent() {
         const data = await response.json();
         if (data.success) {
           setCountdown(data.settings.authTimeout);
+          setInitialAuthTimeout(data.settings.authTimeout);
         }
       } catch (err) {
         console.error('获取设置失败:', err);
@@ -118,50 +149,98 @@ function CombinedContent() {
   }, []);
 
   // 跳转到成功页面
+  // 防止 goToSuccess 被多次调用
+  const goToSuccessCalledRef = useRef(false);
+
   const goToSuccess = useCallback(async () => {
-    const authTypes = completedSteps.map(step => {
-      if (step === 'password') return 'password';
-      if (step === 'iris') return 'iris';
-      if (step === 'palm') return 'palm';
-      return step;
+    if (goToSuccessCalledRef.current) {
+      console.log('[组合认证] goToSuccess 已被调用，跳过重复调用');
+      return;
+    }
+    goToSuccessCalledRef.current = true;
+
+    const currentUserInfo = userInfoRef.current;
+    const currentIdentityId = identityIdRef.current;
+
+    console.log('[组合认证·goToSuccess] completedStepsRef:', JSON.stringify(completedStepsRef.current), 'userInfo:', JSON.stringify(currentUserInfo), 'identityId:', currentIdentityId);
+
+    const authTypes = Array.from(
+      new Set(completedStepsRef.current.map(step => {
+        if (step === 'password') return 'password';
+        if (step === 'iris') return 'iris';
+        if (step === 'palm') return 'palm';
+        return step;
+      }))
+    );
+
+    console.log('[组合认证] 所有步骤完成，上传通行记录:', authTypes.join(','));
+
+    // 写日志：跳转到成功
+    fetch('/api/combined-auth-log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'goToSuccess',
+        step: 'all',
+        completedSteps: authTypes,
+        currentIndex: -1,
+        totalSteps: authTypes.length,
+        scanStatus: 'success',
+        nextAction: 'redirect_to_success',
+      }),
+    }).catch(() => {});
+
+    const params = new URLSearchParams({
+      result: 'success',
+      name: currentUserInfo?.personName || '',
+      boxes: currentUserInfo?.boxList || '',
     });
 
-    // 上传通行记录
+    // 立即跳转，通行记录上传在后台进行
+    console.log('[组合认证·goToSuccess] 即将跳转:', `/kiosk/success?${params.toString()}`);
+    router.push(`/kiosk/success?${params.toString()}`);
+
+    // 后台上传通行记录（不阻塞跳转）
     try {
-      const uploadResponse = await fetch('/api/pass-log/upload', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          personId: identityId,
-          credentialId: userInfo?.credentialId || 0,
-          authTypes: authTypes,
+      const uploadResponse = await Promise.race([
+        fetch('/api/pass-log/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            personId: currentIdentityId,
+            credentialId: currentUserInfo?.credentialId || 0,
+            authTypes: authTypes,
+          }),
         }),
-      });
-      const uploadResult = await uploadResponse.json();
+        new Promise((_, reject) => setTimeout(() => reject(new Error('上传超时')), 3000)),
+      ]);
+      const uploadResult = await (uploadResponse as Response).json();
       if (!uploadResult.success) {
         console.log('[组合认证] 上传通行记录失败:', uploadResult.message);
       }
     } catch (err) {
       console.error('[组合认证] 上传通行记录异常:', err);
     }
+  }, [router]);
 
-    const params = new URLSearchParams({
-      result: 'success',
-      name: userInfo?.personName || '',
-      boxes: userInfo?.boxList || '',
-    });
-    router.push(`/kiosk/success?${params.toString()}`);
-  }, [router, userInfo, identityId, completedSteps]);
+  // 同步 goToSuccessRef，确保 handleBiometricComplete 调用的是最新版本
+  // 使用 immediate assignment 而不是 useEffect，确保 ref 始终指向最新的 goToSuccess
+  goToSuccessRef.current = goToSuccess;
 
   // 虹膜认证轮询
   const startIrisPolling = useCallback(async () => {
-    console.log('[组合虹膜] 开始轮询');
+    console.log('[组合虹膜] 开始轮询, pollingRef设为true');
     pollingRef.current = true;
-    lastCreateTimeRef.current = 0;
+
+    // 延迟 3 秒再开始查询，避免设备端返回之前的缓存记录
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    if (!pollingRef.current) { console.log('[组合虹膜] 延迟期间被停止'); return; }
+
+    console.log('[组合虹膜] 延迟结束，setScanStatus(scanning)');
     setScanStatus('scanning');
 
     const startTime = Date.now();
-    const timeoutMs = countdown * 1000;
+    const timeoutMs = countdownRef.current * 1000;
 
     while (pollingRef.current && Date.now() - startTime < timeoutMs) {
       if (!pollingRef.current) break;
@@ -171,10 +250,10 @@ function CombinedContent() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            startTime: Date.now() - 3000,
+            startTime: Date.now() - 6000, // 6秒时间窗口，确保与上次有重叠
             endTime: Date.now(),
             count: 10,
-            lastCreateTime: lastCreateTimeRef.current,
+            lastCreateTime: 0,
           }),
         });
 
@@ -183,28 +262,29 @@ function CombinedContent() {
         if (result.success && result.data) {
           const data = result.data;
           if (data.errorCode === 0 && data.body && data.body.length > 0) {
-            const lastRecord = data.body[data.body.length - 1];
-            if (lastRecord && lastRecord.createTime) {
-              lastCreateTimeRef.current = lastRecord.createTime;
-            }
 
             let foundOther = false;
-            for (const record of data.body) {
-              if (record.success && record.type === 1) {
-                // 需要比对 identityId（明文）与 record.staffNum（可能也是明文）
-                // 虹膜设备返回的 staffNum 是原始值，不是加密的
-                if (record.staffNum === identityId) {
-                  console.log('[组合虹膜] 识别成功');
-                  setScanStatus('success');
-                  setMismatchHint(false);
-                  stopPolling();
-                  handleBiometricComplete('iris');
-                  return;
-                } else {
-                  foundOther = true;
-                  console.log('[组合虹膜] 识别到其他人:', record.staffNum);
-                }
-              }
+            // 将记录发送到服务端，用加密后的 identityId 进行比对
+            const verifyResponse = await fetch('/api/device/iris/verify', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                identityId,
+                records: data.body,
+              }),
+            });
+            const verifyResult = await verifyResponse.json();
+
+            if (verifyResult.success && verifyResult.match) {
+              console.log('[组合虹膜] 识别成功, 将调用handleBiometricComplete');
+              setScanStatus('success');
+              setMismatchHint(false);
+              stopPolling();
+              handleBiometricComplete('iris');
+              return;
+            } else if (verifyResult.success && !verifyResult.match) {
+              foundOther = true;
+              console.log('[组合虹膜] 识别到其他人');
             }
             if (foundOther) {
               setMismatchHint(true);
@@ -222,11 +302,11 @@ function CombinedContent() {
     if (pollingRef.current) {
       setScanStatus('error');
     }
-  }, [identityId, countdown, stopPolling]);
+  }, [identityId, stopPolling]);
 
   // 掌纹认证轮询
   const startPalmPolling = useCallback(async () => {
-    console.log('[组合掌纹] 开始轮询');
+    console.log('[组合掌纹] 开始轮询, pollingRef设为true, setScanStatus(scanning)');
     pollingRef.current = true;
     setScanStatus('scanning');
 
@@ -235,14 +315,14 @@ function CombinedContent() {
       await fetch('/api/device/palm/query', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ request: 103 }),
+        body: JSON.stringify({ request: '103' }),
       });
     } catch (err) {
       console.log('[组合掌纹] 发送开始指令失败:', err);
     }
 
     const startTime = Date.now();
-    const timeoutMs = countdown * 1000;
+    const timeoutMs = countdownRef.current * 1000;
 
     while (pollingRef.current && Date.now() - startTime < timeoutMs) {
       if (!pollingRef.current) break;
@@ -251,49 +331,60 @@ function CombinedContent() {
         const response = await fetch('/api/device/palm/query', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ request: 101 }),
+          body: JSON.stringify({ request: '103' }),
         });
 
         const result = await response.json();
 
         if (result.success && result.data) {
-          const { code, des } = result.data;
+          const data = result.data;
+          const code = String(data.code);
 
-          if (code === 200 && des) {
-            // 验证 userId 是否匹配当前用户
-            const verifyResponse = await fetch(`/api/auth/verify-palm?userId=${encodeURIComponent(des)}&identityId=${encodeURIComponent(identityId)}`);
-            const verifyResult = await verifyResponse.json();
+          if (code === '200') {
+            // 识别成功
+            console.log('[组合掌纹] 识别成功');
+            const userId = data.des;
+            console.log('[组合掌纹] 识别到用户:', userId);
 
-            if (verifyResult.success && verifyResult.match) {
-              console.log('[组合掌纹] 识别成功');
-              // 发送停止指令
-              await fetch('/api/device/palm/query', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ request: 102 }),
-              });
+            // 发送停止指令
+            await fetch('/api/device/palm/query', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ request: '102' }),
+            });
+
+            // 验证是否匹配当前用户
+            const verifyResponse = await fetch(`/api/auth/verify-palm?userId=${encodeURIComponent(userId)}&identityId=${encodeURIComponent(identityId)}`);
+            const verifyData = await verifyResponse.json();
+
+            if (verifyData.success && verifyData.match) {
+              // 匹配成功
+              console.log('[组合掌纹] 匹配成功, 即将调用handleBiometricComplete, poll循环将退出');
               setScanStatus('success');
               setMismatchHint(false);
               stopPolling();
+              console.log('[组合掌纹] stopPolling后调用handleBiometricComplete');
               handleBiometricComplete('palm');
+              console.log('[组合掌纹] handleBiometricComplete返回后, pollingRef:', pollingRef.current);
+              pollingRef.current = false;
               return;
             } else {
-              console.log('[组合掌纹] 用户不匹配');
+              // 不匹配，显示提示并发送开始识别指令，继续轮询
+              console.log('[组合掌纹] 识别到其他用户:', userId, '，重新开始识别');
               setMismatchHint(true);
               setTimeout(() => setMismatchHint(false), 3000);
-              // 发送停止后重新开始
               await fetch('/api/device/palm/query', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ request: 102 }),
-              });
-              await new Promise(resolve => setTimeout(resolve, 200));
-              await fetch('/api/device/palm/query', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ request: 103 }),
+                body: JSON.stringify({ request: '103' }),
               });
             }
+          } else if (code === '100') {
+            // 未识别状态，继续轮询
+            console.log('[组合掌纹] 未识别状态，继续轮询');
+          } else if (code === '404') {
+            // 识别失败，继续轮询
+            console.log('[组合掌纹] 识别失败，继续轮询');
           }
         }
       } catch (error: any) {
@@ -305,26 +396,39 @@ function CombinedContent() {
 
     // 超时，发送停止指令
     if (pollingRef.current) {
+      console.log('[组合掌纹] 轮询超时，setScanStatus(error)');
       try {
         await fetch('/api/device/palm/query', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ request: 102 }),
+          body: JSON.stringify({ request: '102' }),
         });
       } catch (err) {}
       setScanStatus('error');
     }
-  }, [identityId, countdown, stopPolling]);
+  }, [identityId, stopPolling]);
+
+  // 步骤切换时重置 scanStatus，防止新步骤继承上一步的 success/error 状态
+  useEffect(() => {
+    if (currentStep === 'iris' || currentStep === 'palm') {
+      console.log('[组合认证·resetScanStatus] 步骤切换，重置 scanStatus 为 waiting, currentStep:', currentStep);
+      setScanStatus('waiting');
+      setMismatchHint(false);
+    }
+  }, [currentStep]);
 
   // 切换到生物识别步骤时启动轮询
   useEffect(() => {
     if (!currentStep) return;
+    console.log('[组合认证·polling useEffect] currentStep:', currentStep, 'completedSteps:', completedSteps, 'scanStatus:', scanStatus);
     if (currentStep === 'iris' && !completedSteps.includes('iris')) {
+      console.log('[组合认证·polling useEffect] 启动虹膜轮询');
       startIrisPolling();
-      return () => stopPolling();
+      return () => { console.log('[组合认证·polling useEffect] 清理虹膜轮询'); stopPolling(); };
     } else if (currentStep === 'palm' && !completedSteps.includes('palm')) {
+      console.log('[组合认证·polling useEffect] 启动掌纹轮询');
       startPalmPolling();
-      return () => stopPolling();
+      return () => { console.log('[组合认证·polling useEffect] 清理掌纹轮询'); stopPolling(); };
     }
   }, [currentStep, completedSteps, startIrisPolling, startPalmPolling, stopPolling]);
 
@@ -371,6 +475,23 @@ function CombinedContent() {
       return;
     }
 
+    console.log('[组合认证] 开始密码验证, currentStep:', currentStep, 'steps:', steps);
+
+    // 写日志：开始密码验证
+    fetch('/api/combined-auth-log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'password_submit',
+        step: 'password',
+        completedSteps: completedStepsRef.current,
+        currentIndex: steps.indexOf(currentStep!),
+        totalSteps: steps.length,
+        scanStatus: 'scanning',
+        nextAction: 'verifying',
+      }),
+    }).catch(() => {});
+
     setPasswordError('');
     setScanStatus('scanning');
 
@@ -387,13 +508,28 @@ function CombinedContent() {
         // 胁迫码触发：直接跳转成功
         if (result.isDuress) {
           console.log('[组合认证] 胁迫码触发，直接跳转成功');
+          fetch('/api/combined-auth-log', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'duress_triggered',
+              step: 'password',
+              completedSteps: ['password'],
+              currentIndex: 0,
+              totalSteps: steps.length,
+              scanStatus: 'success',
+              nextAction: 'direct_goToSuccess',
+            }),
+          }).catch(() => {});
           // 更新 userInfo
           if (result.personName) {
-            setUserInfo({
+            const duressUserInfo = {
               personName: result.personName || '',
               boxList: result.boxList || '',
               credentialId: result.credentialId || 0,
-            });
+            };
+            setUserInfo(duressUserInfo);
+            userInfoRef.current = duressUserInfo;
           }
           // 上传通行记录
           try {
@@ -419,15 +555,42 @@ function CombinedContent() {
 
         // 正常密码通过
         console.log('[组合密码] 验证成功');
+
+        // 写日志：密码通过
+        const passwordCurrentIndex = steps.indexOf(currentStep!);
+        const isPasswordLastStep = passwordCurrentIndex >= steps.length - 1;
+        const passwordLogData = {
+          action: 'password_success',
+          step: 'password',
+          completedSteps: [...completedStepsRef.current, 'password'],
+          currentIndex: passwordCurrentIndex,
+          totalSteps: steps.length,
+          scanStatus: 'success',
+          nextAction: isPasswordLastStep ? 'goToSuccess' : 'goToNext',
+        };
+        fetch('/api/combined-auth-log', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(passwordLogData),
+        }).catch(() => {});
+
         setScanStatus('success');
         setCompletedSteps(prev => [...prev, 'password']);
+        completedStepsRef.current = [...completedStepsRef.current, 'password'];
 
-        const currentIndex = steps.indexOf(currentStep!);
-        if (currentIndex < steps.length - 1) {
-          setCurrentStep(steps[currentIndex + 1]);
-          setPassword('');
+        // 统一用当前 steps 列表判断下一步，确保组装列表和验证列表一致
+        if (passwordCurrentIndex < steps.length - 1) {
+          const nextStep = steps[passwordCurrentIndex + 1];
+          console.log('[组合认证] 密码通过后进入下一步:', nextStep, '重置倒计时为初始值:', initialAuthTimeout);
+          // 重置倒计时和状态，确保新步骤从完整时间开始
+          setCountdown(initialAuthTimeout);
           setScanStatus('waiting');
+          setPassword('');
+          setTimeout(() => {
+            setCurrentStep(nextStep);
+          }, 0);
         } else {
+          console.log('[组合认证] 密码是最后一步，跳转成功');
           goToSuccess();
         }
       } else {
@@ -440,16 +603,77 @@ function CombinedContent() {
     }
   }, [password, identityId, currentStep, steps, goToSuccess, router, userInfo]);
 
-  const handleBiometricComplete = useCallback((step: AuthStep) => {
-    setCompletedSteps(prev => [...prev, step]);
-    const currentIndex = steps.indexOf(step);
-    if (currentIndex < steps.length - 1) {
-      setCurrentStep(steps[currentIndex + 1]);
-      setScanStatus('waiting');
-    } else {
-      goToSuccess();
+  const handleBiometricComplete = useCallback(async (step: AuthStep) => {
+    // 防护：同一设备识别成功可能被多次调用，跳过已完成的步骤
+    if (completedStepsRef.current.includes(step)) {
+      console.log('[组合认证] 步骤已完成，跳过重复调用:', step);
+      return;
     }
-  }, [steps, goToSuccess]);
+
+    // 使用 ref 读取最新的 steps 和 goToSuccess，避免 polling 闭包引用旧版本
+    const currentSteps = stepsRef.current;
+    const currentGoToSuccess = goToSuccessRef.current;
+
+    // ===== 关键日志：在状态修改之前 =====
+    const currentIndex = currentSteps.indexOf(step);
+    const isLastStep = currentIndex >= currentSteps.length - 1;
+    console.log('[组合认证·complete] step:', step, 'stepsRef:', JSON.stringify(currentSteps), 'completedStepsRef:', JSON.stringify(completedStepsRef.current), 'currentIndex:', currentIndex, 'isLast:', isLastStep);
+
+    setCompletedSteps(prev => [...prev, step]);
+    completedStepsRef.current = [...completedStepsRef.current, step];
+
+    // 写日志：生物识别完成
+    fetch('/api/combined-auth-log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'biometric_complete',
+        step: step,
+        completedSteps: completedStepsRef.current,
+        currentIndex: currentIndex,
+        totalSteps: currentSteps.length,
+        scanStatus: 'success',
+        nextAction: isLastStep ? 'goToSuccess' : 'goToNext',
+      }),
+    }).catch(() => {});
+
+    if (isLastStep) {
+      console.log('[组合认证] 是最后一步，跳转成功');
+      currentGoToSuccess?.();
+    } else {
+      const nextStep = currentSteps[currentIndex + 1];
+      console.log('[组合认证] 进入下一步:', nextStep, '重置倒计时为初始值:', initialAuthTimeout);
+      // 重置倒计时和状态，确保新步骤从完整时间开始
+      setCountdown(initialAuthTimeout);
+      setScanStatus('waiting');
+      setMismatchHint(false);
+      setTimeout(() => {
+        console.log('[组合认证·setTimeout] 切换步骤到:', nextStep);
+        setCurrentStep(nextStep);
+      }, 0);
+    }
+  }, []); // 空依赖，内部通过 ref 读取最新值
+
+  const handleBiometricRetry = useCallback(async () => {
+    stopPolling();
+    setMismatchHint(false);
+    setScanStatus('scanning');
+    // 重置倒计时
+    try {
+      const response = await fetch('/api/auth/settings');
+      const data = await response.json();
+      if (data.success) {
+        setCountdown(data.settings.authTimeout);
+      }
+    } catch (err) {
+      console.log('[组合认证] 获取设置失败，使用默认值:', err);
+    }
+    if (currentStep === 'iris') {
+      startIrisPolling();
+    } else if (currentStep === 'palm') {
+      startPalmPolling();
+    }
+  }, [currentStep, stopPolling, startIrisPolling, startPalmPolling]);
 
   const handleBack = useCallback(() => {
     stopPolling();
@@ -458,13 +682,17 @@ function CombinedContent() {
     if (currentIndex > 0) {
       setCurrentStep(steps[currentIndex - 1]);
       setCompletedSteps(prev => prev.slice(0, -1));
+      completedStepsRef.current = completedStepsRef.current.slice(0, -1);
       setPassword('');
       setPasswordError('');
       setScanStatus('waiting');
     } else {
-      router.push(`/kiosk/select?identityId=${encodeURIComponent(identityId)}`);
+      router.push('/kiosk');
     }
   }, [currentStep, steps, stopPolling, router, identityId]);
+
+  // 渲染日志：每次render时输出关键状态
+  console.log('[组合认证·render] currentStep:', currentStep, 'scanStatus:', scanStatus, 'completedSteps:', JSON.stringify(completedSteps), 'steps:', JSON.stringify(steps), 'countdown:', countdown);
 
   // 倒计时
   useEffect(() => {
@@ -562,7 +790,7 @@ function CombinedContent() {
           <div className="bg-white rounded-2xl shadow-xl border border-gray-200 p-10 md:p-12">
             {/* 倒计时 */}
             <div className="mb-6">
-              <IdleTimer />
+              <IdleTimer resetKey={currentStep || ''} />
             </div>
 
             {/* 标题 */}
@@ -806,14 +1034,7 @@ function CombinedContent() {
               )}
               {(currentStep === 'iris' || currentStep === 'palm') && scanStatus === 'error' && (
                 <button
-                  onClick={() => {
-                    setScanStatus('waiting');
-                    if (currentStep === 'iris') {
-                      startIrisPolling();
-                    } else {
-                      startPalmPolling();
-                    }
-                  }}
+                  onClick={handleBiometricRetry}
                   className="flex-1 px-4 py-4 bg-gray-900 text-white rounded-xl font-bold text-base
                            hover:bg-black transition-all active:scale-95 transform"
                 >

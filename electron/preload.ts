@@ -36,6 +36,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // 重启应用
   restartApp: () => ipcRenderer.invoke('restart-app'),
+
+  // 重启后台服务（Next.js）
+  restartBackend: () => ipcRenderer.invoke('restart-backend'),
+
+  // 清理缓存（.next/cache + 浏览器缓存）
+  clearCache: () => ipcRenderer.invoke('clear-cache'),
 });
 
 // 类型定义（供前端使用）
@@ -49,6 +55,8 @@ export interface ElectronAPI {
   close: () => Promise<void>;
   reload: () => Promise<void>;
   restartApp: () => Promise<void>;
+  restartBackend: () => Promise<{ success: boolean; message?: string }>;
+  clearCache: () => Promise<{ success: boolean; message: string }>;
 }
 
 declare global {

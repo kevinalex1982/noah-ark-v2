@@ -13,7 +13,7 @@ const SETTINGS_FILE = join(SETTINGS_DIR, 'settings.json');
 
 // 默认设置
 const DEFAULT_SETTINGS: SystemSettings = {
-  authTimeout: 60,        // 认证超时时间（秒）
+  authTimeout: 120,       // 认证超时时间（秒）
   successReturnTime: 10,  // 认证成功返回时间（秒）
   irisEndpoint: 'http://192.168.3.202:9003',  // 虹膜设备地址
   palmEndpoint: 'http://127.0.0.1:8080',       // 掌纹设备地址

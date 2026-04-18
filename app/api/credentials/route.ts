@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
     const pageSize = parseInt(searchParams.get('pageSize') || '15', 10);
 
     const offset = (page - 1) * pageSize;
-    const credentials = await getAllCredentials({ type, limit: pageSize, offset });
+    const credentials = await getAllCredentials({ type, limit: pageSize, offset, excludeLarge: true });
     const total = await getCredentialCount(type);
     const totalPages = Math.ceil(total / pageSize);
 

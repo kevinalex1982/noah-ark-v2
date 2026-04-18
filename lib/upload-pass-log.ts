@@ -5,7 +5,7 @@
 
 import { initDatabase } from './database';
 import { getDeviceId } from './settings';
-import { insertPassLog, updateIamsResponse, getPassLogById } from './db-pass-logs';
+import { insertPassLog, updateIamsResponse, getPassLogById, getRecentPassLogByPerson } from './db-pass-logs';
 import { getMqttClient } from './mqtt-client';
 
 // IAMS MQTT 配置
@@ -47,6 +47,13 @@ export async function uploadPassLog(
   const timestamp = Date.now();
 
   console.log(`[PassLogUpload] 开始上传通行记录: personId=${personId}, authType=${authType}`);
+
+  // 去重检查：最近 5 秒内是否存在相同 personId + credentialId + authType 的记录
+  const isDuplicate = await getRecentPassLogByPerson(personId, credentialId, authType, 5);
+  if (isDuplicate) {
+    console.log(`[PassLogUpload] 跳过重复上传: personId=${personId}, credentialId=${credentialId}, authType=${authType}`);
+    return { success: true, message: '重复记录，已跳过' };
+  }
 
   // 1. 先存入数据库
   const logId = await insertPassLog({

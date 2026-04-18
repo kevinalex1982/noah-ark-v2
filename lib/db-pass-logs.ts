@@ -157,6 +157,29 @@ export async function getUnrespondedPassLogs(): Promise<PassLog[]> {
 }
 
 /**
+ * 检查最近 N 秒内是否存在相同 person_id + credential_id + auth_type 的记录
+ * 用于去重
+ */
+export async function getRecentPassLogByPerson(
+  personId: string,
+  credentialId: number,
+  authType: string,
+  seconds: number = 5
+): Promise<boolean> {
+  const db = getDatabase();
+
+  const result = await db.execute({
+    sql: `SELECT COUNT(*) as count FROM pass_logs
+          WHERE person_id = ? AND credential_id = ? AND auth_type = ?
+          AND created_at > datetime('now', '+8 hours', '-' || ? || ' seconds')`,
+    args: [personId, credentialId, authType, seconds],
+  });
+
+  const count = result.rows[0]?.count as number || 0;
+  return count > 0;
+}
+
+/**
  * 获取最近的通行记录
  */
 export async function getRecentPassLogs(limit: number = 50): Promise<PassLog[]> {

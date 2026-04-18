@@ -15,7 +15,7 @@
 import { app, BrowserWindow, Tray, Menu, nativeImage, shell, dialog, ipcMain, NativeImage } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
-import { spawn } from 'child_process';
+import { spawn, exec } from 'child_process';
 
 // 默认配置
 const DEFAULT_CONFIG = {
@@ -152,9 +152,27 @@ function getNodePath(): string {
 let nextProcess: ReturnType<typeof spawn> | null = null;
 
 /**
- * 写入日志到文件
+ * 写入启动日志到文件（AppData 日志目录）
  */
-function writeLog(message: string, level: 'info' | 'error' = 'info'): void {
+function writeLog(message: string, level: 'info' | 'error' | 'warn' = 'info'): void {
+  const userDataDir = app.getPath('userData');
+  const logDir = path.join(userDataDir, 'logs');
+  const logFile = path.join(logDir, 'startup.log');
+
+  if (!require('fs').existsSync(logDir)) {
+    require('fs').mkdirSync(logDir, { recursive: true });
+  }
+
+  const timestamp = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
+  const line = `[${timestamp}] [${level}] ${message}\n`;
+
+  require('fs').appendFileSync(logFile, line, 'utf-8');
+}
+
+/**
+ * 写入 Next.js 子进程输出到独立日志
+ */
+function writeNextJsLog(message: string, level: 'info' | 'error' = 'info'): void {
   const userDataDir = app.getPath('userData');
   const logDir = path.join(userDataDir, 'logs');
   const logFile = path.join(logDir, 'nextjs.log');
@@ -167,6 +185,66 @@ function writeLog(message: string, level: 'info' | 'error' = 'info'): void {
   const line = `[${timestamp}] [${level}] ${message}\n`;
 
   require('fs').appendFileSync(logFile, line, 'utf-8');
+}
+
+/**
+ * 关闭占用指定端口的进程
+ */
+function killProcessOnPort(port: number): Promise<void> {
+  return new Promise((resolve) => {
+    // 查找占用端口的 PID
+    exec(`netstat -ano | findstr :${port}`, (error, stdout) => {
+      if (error || !stdout) {
+        resolve();
+        return;
+      }
+      const lines = stdout.trim().split('\n');
+      const pids = new Set<string>();
+      for (const line of lines) {
+        const parts = line.trim().split(/\s+/);
+        if (parts.length >= 5) {
+          const state = parts[3];
+          if (state === 'LISTENING' || state === 'TIME_WAIT' || state === 'ESTABLISHED') {
+            const pid = parts[4];
+            if (pid && pid !== '0') {
+              pids.add(pid);
+            }
+          }
+        }
+      }
+      if (pids.size === 0) {
+        writeLog(`端口 ${port} 未被占用，无需清理`, 'info');
+        resolve();
+        return;
+      }
+      // 杀掉占用进程
+      const killCmd = `taskkill /F /PID ${Array.from(pids).join(' /PID ')}`;
+      writeLog(`正在清理端口 ${port} 占用进程: PID ${Array.from(pids).join(', ')}`, 'warn');
+      exec(killCmd, () => {
+        // 等1秒让系统释放端口
+        setTimeout(resolve, 1000);
+      });
+    });
+  });
+}
+
+/**
+ * 清理 .next/cache 目录（解决现场缓存问题）
+ */
+function cleanNextCache(): void {
+  if (isDev()) return; // 开发模式不清理
+
+  const appPath = getResourcePath();
+  const cacheDir = path.join(appPath, '.next', 'cache');
+
+  if (fs.existsSync(cacheDir)) {
+    try {
+      fs.rmSync(cacheDir, { recursive: true, force: true });
+      writeLog('已清理 .next/cache 目录', 'info');
+    } catch (error: any) {
+      writeLog(`清理 .next/cache 失败: ${error.message}`, 'warn');
+    }
+  }
 }
 
 /**
@@ -184,6 +262,12 @@ async function startEmbeddedServices(): Promise<void> {
     console.log('[Electron] 连接远程服务器，跳过内嵌服务启动');
     return;
   }
+
+  // 启动前先清理 .next/cache（解决现场缓存导致的页面显示异常）
+  cleanNextCache();
+
+  // 启动前先清理端口 3001 占用（处理上次退出不彻底的情况）
+  await killProcessOnPort(3001);
 
   const appPath = getResourcePath();
   const nodePath = getNodePath();
@@ -213,33 +297,35 @@ async function startEmbeddedServices(): Promise<void> {
     detached: true,
   });
 
+  writeLog(`Next.js 进程已启动, PID: ${nextProcess.pid}`, 'info');
+
   // 将子进程输出转发到主进程控制台 + 日志文件
   nextProcess.stdout?.on('data', (data) => {
     const text = data.toString().trim();
     if (text) {
       console.log(`[Next.js] ${text}`);
-      writeLog(text, 'info');
+      writeNextJsLog(text, 'info');
     }
   });
   nextProcess.stderr?.on('data', (data) => {
     const text = data.toString().trim();
     if (text) {
       console.error(`[Next.js] ${text}`);
-      writeLog(text, 'error');
+      writeNextJsLog(text, 'error');
     }
   });
   nextProcess.on('error', (err) => {
     console.error('[Electron] Next.js 进程启动失败:', err);
-    writeLog(`进程启动失败: ${err.message}`, 'error');
+    writeLog(`Next.js 进程错误: ${err.message}`, 'error');
+    writeLog(`错误堆栈: ${err.stack}`, 'error');
   });
   nextProcess.on('exit', (code, signal) => {
     console.log(`[Electron] Next.js 进程退出: code=${code}, signal=${signal}`);
-    writeLog(`进程退出: code=${code}, signal=${signal}`, 'error');
+    writeLog(`Next.js 进程退出: code=${code}, signal=${signal}`, 'error');
+    nextProcess = null;  // ⚠️ 进程退出后清除引用，允许重新启动
   });
 
-  // 等待 Next.js 启动
-  console.log('[Electron] 等待服务启动...');
-  await new Promise(resolve => setTimeout(resolve, 3000));
+  // 等待 Next.js 启动（不再固定等待3秒，由 main() 中的 waitForServiceReady 处理）
 }
 
 /**
@@ -259,6 +345,70 @@ function stopEmbeddedServices(): void {
       }, 3000);
     } catch { /* process already dead */ }
     nextProcess = null;
+  }
+}
+
+/**
+ * 等待 Next.js 服务就绪（轮询 HTTP 端口）
+ */
+async function waitForServiceReady(url: string, maxRetries: number = 20, interval: number = 2000): Promise<boolean> {
+  const http = require('http');
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      await new Promise<void>((resolve, reject) => {
+        http.get(url, (res: any) => {
+          resolve();
+        }).on('error', () => {
+          reject();
+        });
+      });
+      console.log(`[Electron] Next.js 服务已就绪（第 ${i + 1} 次尝试）`);
+      return true;
+    } catch {
+      console.log(`[Electron] 等待服务启动... (${i + 1}/${maxRetries})`);
+      await new Promise(resolve => setTimeout(resolve, interval));
+    }
+  }
+  return false;
+}
+
+/**
+ * 重启内嵌服务（用于系统设置页面的"重启后台服务"按钮）
+ * 返回 { success, message } 表示实际结果
+ */
+async function restartEmbeddedServices(): Promise<{ success: boolean; message: string }> {
+  console.log('[Electron] 正在重启 Next.js 服务...');
+  writeLog('用户请求重启 Next.js 服务', 'info');
+
+  stopEmbeddedServices();
+  // 等待进程完全退出 + 端口释放
+  await new Promise(resolve => setTimeout(resolve, 3000));
+
+  // 验证关键路径是否存在
+  const appPath = getResourcePath();
+  const nextCliPath = path.join(appPath, 'node_modules', 'next', 'dist', 'bin', 'next');
+  if (!fs.existsSync(nextCliPath)) {
+    const msg = `Next.js CLI 不存在: ${nextCliPath}`;
+    writeLog(msg, 'error');
+    return { success: false, message: msg };
+  }
+
+  try {
+    await startEmbeddedServices();
+    // 等待新服务就绪
+    const ready = await waitForServiceReady(CONFIG.serverUrl);
+    if (ready) {
+      writeLog('Next.js 服务重启成功', 'info');
+      return { success: true, message: '服务已启动' };
+    } else {
+      const msg = '服务启动超时（40秒），请检查日志';
+      writeLog(msg, 'error');
+      return { success: false, message: msg };
+    }
+  } catch (error: any) {
+    const msg = `启动异常: ${error.message}`;
+    writeLog(msg, 'error');
+    return { success: false, message: msg };
   }
 }
 
@@ -334,17 +484,16 @@ function createWindow(): void {
 }
 
 /**
- * 创建一个简单的托盘图标（灰色圆角方块 + 白色字母 N）
+ * 创建一个简单的托盘图标（浅灰色圆角方块 + 白色字母 N）
+ * 使用亮色以便在深色和浅色托盘栏上都可见
  */
 function createTrayIcon(): NativeImage {
-  // 创建一个 16x16 的托盘图标
   const size = 16;
   const canvas = Buffer.alloc(size * size * 4); // RGBA
 
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
       const idx = (y * size + x) * 4;
-      // 圆角判断
       const radius = 3;
       let isCorner = false;
       if (x < radius && y < radius) {
@@ -369,15 +518,16 @@ function createTrayIcon(): NativeImage {
       }
 
       if (isCorner) {
-        canvas[idx] = 0;     // R
-        canvas[idx + 1] = 0; // G
-        canvas[idx + 2] = 0; // B
-        canvas[idx + 3] = 0; // A
+        canvas[idx] = 0;
+        canvas[idx + 1] = 0;
+        canvas[idx + 2] = 0;
+        canvas[idx + 3] = 0;
       } else {
-        canvas[idx] = 50;     // R - 深灰色背景
-        canvas[idx + 1] = 50; // G
-        canvas[idx + 2] = 55; // B
-        canvas[idx + 3] = 255; // A - 不透明
+        // 亮色背景（白色）
+        canvas[idx] = 255;     // R
+        canvas[idx + 1] = 255; // G
+        canvas[idx + 2] = 255; // B
+        canvas[idx + 3] = 255; // A
       }
     }
   }
@@ -461,6 +611,22 @@ function createTray(): void {
         shell.openPath(logDir);
       },
     },
+    {
+      label: '查看启动日志',
+      click: () => {
+        const logFile = path.join(app.getPath('userData'), 'logs', 'startup.log');
+        if (fs.existsSync(logFile)) {
+          shell.openPath(logFile);
+        } else {
+          dialog.showMessageBox(mainWindow!, {
+            type: 'info',
+            title: '提示',
+            message: '启动日志尚未创建',
+            detail: '日志文件路径：' + logFile,
+          });
+        }
+      },
+    },
     { type: 'separator' },
     {
       label: '重启应用',
@@ -493,16 +659,20 @@ function checkAndClearOldData(): void {
   if (fs.existsSync(flagPath)) {
     console.log('[Electron] 检测到清除旧数据标记，开始清理...');
     try {
-      // 删除整个 userData 目录（数据库、设置、日志等）
-      // 注意：只删除 noah-ark-electron 目录的内容，不删除目录本身
+      // ⚠️ 保留 settings.json 和 noah-ark.db，不清除用户配置
+      const preserveFiles = ['settings.json', 'noah-ark.db'];
       const items = fs.readdirSync(userDataDir);
       for (const item of items) {
         if (item === '.clear-old-data') continue; // 标记文件最后删除
+        if (preserveFiles.includes(item)) {
+          console.log(`[Electron] 保留: ${item}`);
+          continue;
+        }
         const itemPath = path.join(userDataDir, item);
         fs.rmSync(itemPath, { recursive: true, force: true });
       }
       fs.unlinkSync(flagPath); // 删除标记文件
-      console.log('[Electron] 旧数据已清除');
+      console.log('[Electron] 旧数据已清除（保留 settings.json 和数据库）');
     } catch (error) {
       console.error('[Electron] 清除旧数据失败:', error);
     }
@@ -513,22 +683,77 @@ function checkAndClearOldData(): void {
  * 应用启动
  */
 async function main() {
-  // 检查是否需要清除旧数据（安装程序设置的标记）
-  checkAndClearOldData();
-
-  // 加载客户端配置（服务器地址）
-  const clientConfig = loadClientConfig();
-  CONFIG.serverUrl = clientConfig.serverUrl;
-  console.log('[Electron] 服务器地址:', CONFIG.serverUrl);
-
-  await startEmbeddedServices();
-
-  if (!isDev()) {
-    setAutoLaunch(true);
+  // 清空旧日志（每次启动只保留当前会话）
+  const userDataDir = app.getPath('userData');
+  const logDir = path.join(userDataDir, 'logs');
+  if (fs.existsSync(logDir)) {
+    try {
+      fs.readdirSync(logDir).forEach(f => {
+        if (f === 'startup.log' || f === 'nextjs.log') {
+          fs.writeFileSync(path.join(logDir, f), '', 'utf-8');
+        }
+      });
+    } catch {}
   }
 
-  createWindow();
-  createTray();
+  writeLog('========== 应用启动 ==========', 'info');
+  writeLog(`平台: ${process.platform}, 架构: ${process.arch}`, 'info');
+  writeLog(`Node版本: ${process.version}`, 'info');
+  writeLog(`已打包: ${app.isPackaged}`, 'info');
+  writeLog(`AppData路径: ${app.getPath('userData')}`, 'info');
+  writeLog(`安装路径: ${app.getAppPath()}`, 'info');
+
+  try {
+    // 检查是否需要清除旧数据（安装程序设置的标记）
+    writeLog('步骤 1/5: 检查旧数据...', 'info');
+    checkAndClearOldData();
+
+    // 加载客户端配置（服务器地址）
+    writeLog('步骤 2/5: 加载客户端配置...', 'info');
+    const clientConfig = loadClientConfig();
+    CONFIG.serverUrl = clientConfig.serverUrl;
+    writeLog(`服务器地址: ${CONFIG.serverUrl}`, 'info');
+
+    // 启动内嵌服务
+    writeLog('步骤 3/5: 启动内嵌 Next.js 服务...', 'info');
+    await startEmbeddedServices();
+    writeLog('startEmbeddedServices 完成', 'info');
+
+    // 等待 Next.js 服务就绪后再创建窗口
+    if (!isDev() && CONFIG.serverUrl.includes('localhost')) {
+      writeLog('等待 Next.js 服务就绪...', 'info');
+      const ready = await waitForServiceReady(CONFIG.serverUrl);
+      if (ready) {
+        writeLog('Next.js 服务已就绪', 'info');
+      } else {
+        writeLog('警告: 服务启动超时(40s)，将继续加载窗口', 'warn');
+        console.warn('[Electron] 服务启动超时，将尝试加载窗口（可能需要刷新）');
+      }
+    }
+
+    if (!isDev()) {
+      writeLog('步骤 4/5: 设置开机自启动...', 'info');
+      setAutoLaunch(true);
+    }
+
+    writeLog('步骤 5/5: 创建窗口和托盘...', 'info');
+    createWindow();
+    createTray();
+    writeLog('窗口和托盘已创建', 'info');
+    writeLog('========== 启动完成 ==========', 'info');
+
+  } catch (error: any) {
+    writeLog(`启动过程异常: ${error.message}`, 'error');
+    writeLog(`错误堆栈: ${error.stack}`, 'error');
+    // 即使出错也尝试创建窗口
+    try {
+      createWindow();
+      createTray();
+      writeLog('异常后已尝试创建窗口和托盘', 'warn');
+    } catch (e2: any) {
+      writeLog(`异常后创建窗口也失败: ${e2.message}`, 'error');
+    }
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -568,6 +793,16 @@ ipcMain.handle('restart-app', () => {
   app.exit(0);
 });
 
+ipcMain.handle('restart-backend', async () => {
+  console.log('[Electron] 收到重启后台服务请求');
+  const result = await restartEmbeddedServices();
+  // 重新加载窗口（无论成功失败）
+  if (result.success) {
+    mainWindow?.reload();
+  }
+  return result;
+});
+
 ipcMain.handle('toggle-fullscreen', () => {
   mainWindow?.setFullScreen(!mainWindow.isFullScreen());
 });
@@ -596,8 +831,57 @@ ipcMain.handle('window-reload', () => {
   mainWindow?.reload();
 });
 
+// ⚠️ 清理缓存（.next/cache + 浏览器缓存）
+ipcMain.handle('clear-cache', async () => {
+  console.log('[Electron] 收到清理缓存请求');
+  const messages: string[] = [];
+
+  try {
+    // 1. 清理 .next/cache
+    cleanNextCache();
+    messages.push('Next.js 缓存已清理');
+  } catch (e: any) {
+    messages.push(`Next.js 缓存清理失败: ${e.message}`);
+  }
+
+  try {
+    // 2. 清理浏览器缓存
+    if (mainWindow) {
+      await mainWindow.webContents.session.clearCache();
+      messages.push('浏览器缓存已清理');
+    }
+  } catch (e: any) {
+    messages.push(`浏览器缓存清理失败: ${e.message}`);
+  }
+
+  return { success: true, message: messages.join('；') };
+});
+
 // 单实例锁：确保只有一个 Electron 实例运行
 const gotTheLock = app.requestSingleInstanceLock();
+
+// 全局错误处理
+process.on('uncaughtException', (error) => {
+  try {
+    const logPath = path.join(app.getPath('userData'), 'logs', 'startup.log');
+    const timestamp = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
+    const line = `[${timestamp}] [FATAL] 未捕获异常: ${error.message}\n堆栈: ${error.stack}\n`;
+    require('fs').mkdirSync(path.dirname(logPath), { recursive: true });
+    require('fs').appendFileSync(logPath, line, 'utf-8');
+  } catch {}
+  console.error('[FATAL] 未捕获异常:', error);
+});
+
+process.on('unhandledRejection', (reason) => {
+  try {
+    const logPath = path.join(app.getPath('userData'), 'logs', 'startup.log');
+    const timestamp = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
+    const line = `[${timestamp}] [FATAL] 未处理 Promise 拒绝: ${reason}\n`;
+    require('fs').mkdirSync(path.dirname(logPath), { recursive: true });
+    require('fs').appendFileSync(logPath, line, 'utf-8');
+  } catch {}
+  console.error('[FATAL] 未处理 Promise 拒绝:', reason);
+});
 
 if (!gotTheLock) {
   // 已有实例运行，直接退出

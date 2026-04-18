@@ -31,7 +31,7 @@ export async function POST(request: Request) {
     const queryId = isAesEnabled() ? aesEncrypt(identityId.trim()) : identityId.trim();
 
     // 获取该用户的所有凭证
-    const credentials = await getCredentialsByPersonId(queryId);
+    const credentials = await getCredentialsByPersonId(queryId, { includeContent: true });
 
     if (credentials.length === 0) {
       return NextResponse.json(

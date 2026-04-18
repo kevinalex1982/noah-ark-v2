@@ -90,6 +90,7 @@ export async function GET(request: Request) {
         actualCredentialTypes: actualCredentialTypes,  // 实际凭证类型
         hasDuressCode: hasDuressCode,        // 是否有胁迫码
         authModel: userData.authModel,       // 认证模型：1=单独，2=组合
+        credentialId: userData.credentialId, // 凭证ID
       },
     });
 

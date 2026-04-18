@@ -1,6 +1,6 @@
 ---
 
-## 十、IAMS 凭证下发业务逻辑 ⭐
+### 十、IAMS 凭证下发业务逻辑 ⭐
 
 ### 10.1 凭证类型与下发规则
 
@@ -376,8 +376,32 @@ Response:
 
 ---
 
-**最后更新**：2026-03-24  
+**最后更新**：2026-04-17  
 **更新内容**：
 - 添加 IAMS 凭证下发业务逻辑
 - 更新凭证数量查询 API（与真实设备文档一致）
 - 添加设备下发 API 接口说明（虹膜/掌纹）
+- 凭证查询优化：默认排除大字段（content、iris_left/right_image、palm_feature），使用 LIGHT_COLUMNS 常量，解决磁盘 200MB/s 问题
+
+---
+
+### 十一、数据库查询优化 ⭐
+
+#### 11.1 问题
+
+`credentials` 表中存储了 Base64 编码的大数据字段（`content`、`iris_left_image`、`iris_right_image`、`palm_feature`），单条记录可达数 MB。任何 `SELECT *` 查询都会从磁盘完整读取这些字段，导致现场设备磁盘 IO 高达 200MB/s。
+
+#### 11.2 解决方案
+
+**轻字段常量**：
+```typescript
+const LIGHT_COLUMNS = 'id, person_id, person_name, person_type, credential_id, type, show_info, tags, auth_model, auth_type_list, box_list, custom_id, enable, created_at, updated_at';
+```
+
+**所有查询方法默认使用轻字段**，仅密码验证等需要 content 的场景传 `{ includeContent: true }`。
+
+#### 11.3 图片数据来源
+
+- **虹膜/掌纹图片**：来自 IAMS MQTT payload 的 `content` 字段，不是从数据库读取
+- **faceImage（人脸照片）**：不存储数据库，下发时从 `data/face_photo_sample.txt` 读取
+- **结论**：数据库的图片字段只用于持久化存储，查询时不需要加载

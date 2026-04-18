@@ -7,6 +7,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 
 export default function LogsPage() {
+  const [activeTab, setActiveTab] = useState<'logs' | 'heartbeat'>('heartbeat');
   const [lines, setLines] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -17,6 +18,26 @@ export default function LogsPage() {
   const [totalLines, setTotalLines] = useState(0);
   const logContainerRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
+
+  // 心跳数据
+  const [heartbeat, setHeartbeat] = useState<object | null>(null);
+  const [heartbeatTime, setHeartbeatTime] = useState<string>('');
+
+  // 加载心跳数据
+  const fetchHeartbeat = useCallback(async () => {
+    try {
+      const res = await fetch('/api/logs/heartbeat');
+      const data = await res.json();
+      if (data.success) {
+        setHeartbeat(data.data);
+        setHeartbeatTime(new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }));
+      } else {
+        setHeartbeat(null);
+      }
+    } catch {
+      setHeartbeat(null);
+    }
+  }, []);
 
   // 普通轮询模式加载
   const fetchLogs = useCallback(async () => {
@@ -46,14 +67,18 @@ export default function LogsPage() {
     if (!followMode) {
       fetchLogs();
     }
-  }, [fetchLogs, followMode]);
+    fetchHeartbeat();
+  }, [fetchLogs, followMode, fetchHeartbeat]);
 
   // 轮询模式定时器
   useEffect(() => {
     if (followMode || !autoRefresh) return;
-    const timer = setInterval(fetchLogs, 3000);
+    const timer = setInterval(() => {
+      fetchLogs();
+      fetchHeartbeat();
+    }, 3000);
     return () => clearInterval(timer);
-  }, [fetchLogs, autoRefresh, followMode]);
+  }, [fetchLogs, autoRefresh, followMode, fetchHeartbeat]);
 
   // SSE 实时模式
   useEffect(() => {
@@ -113,6 +138,12 @@ export default function LogsPage() {
     }
   }, [lines, autoScroll]);
 
+  // 心跳数据自动刷新（每10秒，独立于日志模式）
+  useEffect(() => {
+    const timer = setInterval(fetchHeartbeat, 10000);
+    return () => clearInterval(timer);
+  }, [fetchHeartbeat]);
+
   // 手动刷新
   const handleManualRefresh = () => {
     if (followMode) {
@@ -171,80 +202,98 @@ export default function LogsPage() {
 
       {/* Main Content */}
       <main className="max-w-full mx-auto px-4 py-4 sm:px-6 lg:px-8">
-        {/* 工具栏 */}
-        <div className="bg-white shadow rounded-lg p-4 mb-4">
-          <div className="flex items-center justify-between flex-wrap gap-4">
-            <div className="flex items-center space-x-4">
-              {/* 模式切换 */}
-              <div className="flex items-center space-x-2">
-                <span className="text-sm text-gray-600">模式：</span>
-                <button
-                  onClick={() => setFollowMode(true)}
-                  className={`px-3 py-1 text-sm rounded ${followMode ? 'bg-green-600 text-white' : 'bg-gray-200'}`}
-                >
-                  实时
-                </button>
-                <button
-                  onClick={() => setFollowMode(false)}
-                  className={`px-3 py-1 text-sm rounded ${!followMode ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}
-                >
-                  轮询
-                </button>
+        {/* Tab 切换 */}
+        <div className="flex space-x-4 mb-4">
+          <button
+            onClick={() => setActiveTab('logs')}
+            className={`px-4 py-2 rounded-lg font-medium text-sm transition-all ${activeTab === 'logs' ? 'bg-gray-900 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'}`}
+          >
+            服务器日志
+          </button>
+          <button
+            onClick={() => setActiveTab('heartbeat')}
+            className={`px-4 py-2 rounded-lg font-medium text-sm transition-all ${activeTab === 'heartbeat' ? 'bg-gray-900 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'}`}
+          >
+            心跳数据
+          </button>
+        </div>
+
+        {activeTab === 'logs' && (
+          <>
+            {/* 工具栏 */}
+            <div className="bg-white shadow rounded-lg p-4 mb-4">
+              <div className="flex items-center justify-between flex-wrap gap-4">
+                <div className="flex items-center space-x-4">
+                  {/* 模式切换 */}
+                  <div className="flex items-center space-x-2">
+                    <span className="text-sm text-gray-600">模式：</span>
+                    <button
+                      onClick={() => setFollowMode(true)}
+                      className={`px-3 py-1 text-sm rounded ${followMode ? 'bg-green-600 text-white' : 'bg-gray-200'}`}
+                    >
+                      实时
+                    </button>
+                    <button
+                      onClick={() => setFollowMode(false)}
+                      className={`px-3 py-1 text-sm rounded ${!followMode ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}
+                    >
+                      轮询
+                    </button>
+                  </div>
+
+                  {/* 自动刷新（仅轮询模式） */}
+                  {!followMode && (
+                    <label className="flex items-center space-x-2">
+                      <input
+                        type="checkbox"
+                        checked={autoRefresh}
+                        onChange={(e) => setAutoRefresh(e.target.checked)}
+                        className="rounded border-gray-300"
+                      />
+                      <span className="text-sm text-gray-600">自动刷新（3秒）</span>
+                    </label>
+                  )}
+
+                  {/* 自动滚动 */}
+                  <label className="flex items-center space-x-2">
+                    <input
+                      type="checkbox"
+                      checked={autoScroll}
+                      onChange={(e) => setAutoScroll(e.target.checked)}
+                      className="rounded border-gray-300"
+                    />
+                    <span className="text-sm text-gray-600">自动滚动到底部</span>
+                  </label>
+                </div>
+
+                <div className="flex items-center space-x-2">
+                  <span className="text-xs text-gray-500">
+                    {logPath && `日志：${logPath}`}
+                  </span>
+                  <span className="text-xs text-gray-500">
+                    {lines.length} 行 / 共 {totalLines} 行
+                  </span>
+                  <button
+                    onClick={handleManualRefresh}
+                    className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded"
+                  >
+                    刷新
+                  </button>
+                  <button
+                    onClick={handleClear}
+                    className="px-3 py-1 text-sm bg-red-100 text-red-600 hover:bg-red-200 rounded"
+                  >
+                    清空
+                  </button>
+                </div>
               </div>
 
-              {/* 自动刷新（仅轮询模式） */}
-              {!followMode && (
-                <label className="flex items-center space-x-2">
-                  <input
-                    type="checkbox"
-                    checked={autoRefresh}
-                    onChange={(e) => setAutoRefresh(e.target.checked)}
-                    className="rounded border-gray-300"
-                  />
-                  <span className="text-sm text-gray-600">自动刷新（3秒）</span>
-                </label>
+              {followError && (
+                <div className="mt-2 text-sm text-red-600 bg-red-50 p-2 rounded">
+                  {followError}
+                </div>
               )}
-
-              {/* 自动滚动 */}
-              <label className="flex items-center space-x-2">
-                <input
-                  type="checkbox"
-                  checked={autoScroll}
-                  onChange={(e) => setAutoScroll(e.target.checked)}
-                  className="rounded border-gray-300"
-                />
-                <span className="text-sm text-gray-600">自动滚动到底部</span>
-              </label>
             </div>
-
-            <div className="flex items-center space-x-2">
-              <span className="text-xs text-gray-500">
-                {logPath && `日志：${logPath}`}
-              </span>
-              <span className="text-xs text-gray-500">
-                {lines.length} 行 / 共 {totalLines} 行
-              </span>
-              <button
-                onClick={handleManualRefresh}
-                className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded"
-              >
-                刷新
-              </button>
-              <button
-                onClick={handleClear}
-                className="px-3 py-1 text-sm bg-red-100 text-red-600 hover:bg-red-200 rounded"
-              >
-                清空
-              </button>
-            </div>
-          </div>
-
-          {followError && (
-            <div className="mt-2 text-sm text-red-600 bg-red-50 p-2 rounded">
-              {followError}
-            </div>
-          )}
-        </div>
 
         {/* 日志内容 */}
         <div
@@ -292,6 +341,35 @@ export default function LogsPage() {
             </div>
           )}
         </div>
+          </>
+        )}
+
+        {activeTab === 'heartbeat' && (
+          <div className="bg-white shadow rounded-lg p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-gray-900">向 IAMS 上报的心跳数据</h2>
+              <div className="flex items-center space-x-2">
+                <span className="text-sm text-gray-500">
+                  更新时间：{heartbeatTime || '暂无'}
+                </span>
+                <button
+                  onClick={fetchHeartbeat}
+                  className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded"
+                >
+                  刷新
+                </button>
+              </div>
+            </div>
+            <p className="text-sm text-gray-500 mb-4">
+              每10秒向 IAMS 发送一次，显示最近一次上报的完整内容。用于排查设备ID是否冲突。
+            </p>
+            <div className="bg-gray-900 rounded-lg p-4 overflow-auto max-h-[calc(100vh-280px)]">
+              <pre className="text-green-400 text-sm font-mono whitespace-pre-wrap">
+                {heartbeat ? JSON.stringify(heartbeat, null, 2) : '暂无心跳数据（MQTT 未连接或尚未上报）'}
+              </pre>
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );

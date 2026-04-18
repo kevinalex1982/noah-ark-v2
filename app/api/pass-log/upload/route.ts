@@ -11,7 +11,7 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { personId, credentialId, authTypes } = body;
 
-    if (!personId || !credentialId || !authTypes || !Array.isArray(authTypes)) {
+    if (!personId || credentialId === undefined || credentialId === null || !authTypes || !Array.isArray(authTypes)) {
       return NextResponse.json({
         success: false,
         message: '参数错误',

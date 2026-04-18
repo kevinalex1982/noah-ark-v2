@@ -50,8 +50,8 @@ export async function POST(request: Request) {
       console.error(`[IrisProxy] 请求失败:`, fetchError.message);
       return NextResponse.json({
         success: false,
-        error: fetchError.message,
-      });
+        error: '连接不上',
+      }, { status: 401 });
     }
 
   } catch (error) {

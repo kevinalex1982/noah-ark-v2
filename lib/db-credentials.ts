@@ -139,29 +139,38 @@ export async function upsertCredential(data: {
 }
 
 /**
+ * 查询时排除 content、iris_left_image、iris_right_image、palm_feature 等大字段
+ * 这些大字段只用于写入，读取场景（存在性检查、类型查询、验证比对）不需要加载
+ * verify-password 需要 content 字段比对密码，需传 includeContent: true
+ */
+const LIGHT_COLUMNS = 'id, person_id, person_name, person_type, credential_id, type, show_info, tags, auth_model, auth_type_list, box_list, custom_id, enable, created_at, updated_at';
+
+/**
  * 通过 credential_id 查询凭证
  */
-export async function getCredentialById(credentialId: number): Promise<Credential | null> {
+export async function getCredentialById(credentialId: number, options?: { includeContent?: boolean }): Promise<Credential | null> {
   const db = getDatabase();
+  const cols = options?.includeContent ? '*' : LIGHT_COLUMNS;
   const result = await db.execute({
-    sql: 'SELECT * FROM credentials WHERE credential_id = ?',
+    sql: `SELECT ${cols} FROM credentials WHERE credential_id = ?`,
     args: [credentialId]
   });
-  
+
   if (result.rows.length === 0) {
     return null;
   }
-  
+
   return rowToCredential(result.rows[0]);
 }
 
 /**
  * 通过 person_id 查询某人的所有凭证
  */
-export async function getCredentialsByPersonId(personId: string): Promise<Credential[]> {
+export async function getCredentialsByPersonId(personId: string, options?: { includeContent?: boolean }): Promise<Credential[]> {
   const db = getDatabase();
+  const cols = options?.includeContent ? '*' : LIGHT_COLUMNS;
   const result = await db.execute({
-    sql: 'SELECT * FROM credentials WHERE person_id = ? AND enable = 1',
+    sql: `SELECT ${cols} FROM credentials WHERE person_id = ? AND enable = 1`,
     args: [personId]
   });
 
@@ -174,7 +183,7 @@ export async function getCredentialsByPersonId(personId: string): Promise<Creden
 export async function getCredentialByPersonId(personId: string): Promise<Credential | null> {
   const db = getDatabase();
   const result = await db.execute({
-    sql: 'SELECT * FROM credentials WHERE person_id = ? LIMIT 1',
+    sql: `SELECT ${LIGHT_COLUMNS} FROM credentials WHERE person_id = ? LIMIT 1`,
     args: [personId]
   });
 
@@ -192,7 +201,7 @@ export async function getCredentialByPersonId(personId: string): Promise<Credent
 export async function getCredentialByCustomId(customId: string): Promise<Credential | null> {
   const db = getDatabase();
   const result = await db.execute({
-    sql: 'SELECT * FROM credentials WHERE custom_id = ? AND enable = 1 LIMIT 1',
+    sql: `SELECT ${LIGHT_COLUMNS} FROM credentials WHERE custom_id = ? AND enable = 1 LIMIT 1`,
     args: [customId]
   });
 
@@ -247,12 +256,16 @@ export async function getAllCredentials(options?: {
   limit?: number;
   offset?: number;
   type?: CredentialType;
+  excludeLarge?: boolean;  // 列表查询时排除图片/特征大字段，减少磁盘 IO
 }): Promise<Credential[]> {
   const db = getDatabase();
   const limit = options?.limit ?? 100;
   const offset = options?.offset ?? 0;
+  const excludeLarge = options?.excludeLarge ?? true;  // 默认排除大字段
 
-  let sql = 'SELECT * FROM credentials WHERE enable = 1';
+  const cols = excludeLarge ? LIGHT_COLUMNS : '*';
+
+  let sql = `SELECT ${cols} FROM credentials WHERE enable = 1`;
   const args: any[] = [];
 
   if (options?.type) {

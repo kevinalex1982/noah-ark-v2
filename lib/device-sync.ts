@@ -202,7 +202,7 @@ export async function syncToPalmDeviceMQTT(
     userId: string;      // 凭证 ID
     featureData: string; // 掌纹特征 Base64
   }
-): Promise<{ success: boolean; response?: string; error?: string }> {
+): Promise<{ success: boolean; response?: string; error?: string; code?: number }> {
   const startTime = Date.now();
   // 缩短 featureData 显示，只显示前10个字符
   const featurePreview = payload.featureData?.substring(0, 10) + '...' || 'null';
@@ -254,9 +254,11 @@ export async function syncToPalmDeviceMQTT(
               resolve({ success: true, response: data });
             } else {
               console.log(`[PalmDevice] ❌ 下发失败: ${JSON.stringify(json)}`);
+              const deviceMsg = json.msg || json.des || JSON.stringify(json);
               resolve({
                 success: false,
-                error: `掌纹设备返回错误：${JSON.stringify(json)}`
+                error: deviceMsg,
+                code: 401
               });
             }
           } catch {
@@ -290,7 +292,7 @@ export async function syncToPalmDeviceMQTT(
 export async function deleteFromPalmDeviceMQTT(
   endpoint: string,
   userId: string
-): Promise<{ success: boolean; response?: string; error?: string }> {
+): Promise<{ success: boolean; response?: string; error?: string; code?: number }> {
   const startTime = Date.now();
   console.log(`[PalmDevice] 删除用户: ${userId}`);
 
@@ -334,9 +336,11 @@ export async function deleteFromPalmDeviceMQTT(
               resolve({ success: true, response: data });
             } else {
               console.log(`[PalmDevice] ❌ 删除失败: ${JSON.stringify(json)}`);
+              const deviceMsg = json.msg || json.des || JSON.stringify(json);
               resolve({
                 success: false,
-                error: `掌纹设备返回错误：${JSON.stringify(json)}`
+                error: deviceMsg,
+                code: 401
               });
             }
           } catch {
@@ -630,10 +634,24 @@ export async function syncToIrisDevice(
       return { success: true, response: JSON.stringify(responseData) };
     } else {
       const errorCodeNum = Number(responseData.errorCode);
-      // errorCode 9（人员已存在）或 10（人员不在列表中）返回 405，不保存数据库
-      if (errorCodeNum === 9 || errorCodeNum === 10) {
+      // errorCode 9（人员已存在）或 10（人员不在列表中）返回 401，不保存数据库
+      if (errorCodeNum === 9 ) {
+        console.log(`[${beijingTime()}] [设备] ❌ 虹膜添加失败: errorCode=${responseData.errorCode}，返回401给IAMS，不保存数据库`);
+        return { success: false, error: '已经存在相同人脸', code: 401 };
+      }
+
+      if ( errorCodeNum === 10) {
         console.log(`[${beijingTime()}] [设备] ❌ 虹膜添加失败: errorCode=${responseData.errorCode}，返回401给IAMS，不保存数据库`);
         return { success: false, error: '已经存在相同虹膜特征', code: 401 };
+      }
+      // errorCode 12 = 生成左眼虹膜错误, 13 = 生成右眼虹膜错误
+      if (errorCodeNum === 12) {
+        console.log(`[${beijingTime()}] [设备] ❌ 虹膜添加失败: errorCode=12 生成左眼虹膜错误，返回401给IAMS`);
+        return { success: false, error: '12：生成左眼虹膜错误', code: 401 };
+      }
+      if (errorCodeNum === 13) {
+        console.log(`[${beijingTime()}] [设备] ❌ 虹膜添加失败: errorCode=13 生成右眼虹膜错误，返回401给IAMS`);
+        return { success: false, error: '13：生成右眼虹膜错误', code: 401 };
       }
       console.log(`[${beijingTime()}] [设备] ❌ 虹膜添加失败: errorCode=${responseData.errorCode}`);
       return { success: false, error: `errorCode=${responseData.errorCode}` };
@@ -1299,6 +1317,7 @@ export async function handlePassportAdd(
     irisRightImage?: string;
     palmFeature?: string;
     authTypeList?: number[];
+    authModel?: number;      // 1=单凭证, 820=组合认证
     action?: string;
   }
 ): Promise<{ success: boolean; response?: string; error?: string; code?: number }> {
@@ -1307,12 +1326,19 @@ export async function handlePassportAdd(
 
   console.log(`[MQTT-Handler] 处理凭证新增: ${isIris ? '虹膜' : isPalm ? '掌纹' : '其他'}, personId=${payload.personId}`);
 
-  // ⚠️ 检查凭证是否已存在，如果存在返回405
+  // ⚠️ 检查凭证是否已存在
   const { getCredentialById } = await import('./db-credentials');
   const existingCredential = await getCredentialById(payload.credentialId);
   if (existingCredential) {
-    console.log(`[MQTT-Handler] 凭证已存在: credentialId=${payload.credentialId}, 返回405`);
-    return { success: true, response: '凭证已存在', code: 405 };
+    console.log(`[MQTT-Handler] 凭证已存在: credentialId=${payload.credentialId}，更新属性字段`);
+    // 凭证已存在，更新 auth_type_list、auth_model 等属性
+    const { updateCredentialAttributes } = await import('./db-credentials');
+    await updateCredentialAttributes(payload.credentialId, {
+      auth_type_list: payload.authTypeList?.join(','),
+      auth_model: payload.authModel,
+      show_info: payload.content ? undefined : (existingCredential.show_info || undefined), // 保留已有值
+    });
+    return { success: true, response: '凭证已存在，属性已更新', code: 200 };
   }
 
   // 从 content 解析虹膜数据（虹膜数据必须在 content 中）
@@ -1349,20 +1375,17 @@ export async function handlePassportAdd(
       true  // skipDebugLog
     );
 
-    // ⚠️ 设备成功才保存数据库
+    // ⚠️ 设备成功才保存数据库（不再存储图片/特征大字段，转发后不需要持久化）
     if (result.success) {
-      console.log('[MQTT-Handler] 设备添加成功，保存数据库');
+      console.log('[MQTT-Handler] 设备添加成功，保存数据库（轻字段）');
       const { upsertCredential } = await import('./db-credentials');
       await upsertCredential({
         person_id: payload.personId,
         person_name: memberName,
         credential_id: payload.credentialId,
         type: payload.credentialType as import('./db-credentials').CredentialType,
-        content: payload.content,
-        iris_left_image: irisLeftImage,
-        iris_right_image: irisRightImage,
-        palm_feature: palmFeature,
         auth_type_list: payload.authTypeList?.join(',') || String(payload.credentialType),
+        auth_model: payload.authModel,
       });
     } else {
       console.log('[MQTT-Handler] 设备添加失败，不保存数据库');
@@ -1391,10 +1414,9 @@ export async function handlePassportAdd(
         person_name: palmMemberName,
         credential_id: payload.credentialId,
         type: payload.credentialType as import('./db-credentials').CredentialType,
-        content: payload.content,
-        palm_feature: palmFeature,
         auth_type_list: payload.authTypeList?.join(','),
         custom_id: userId,  // 存储掌纹设备上的userId
+        auth_model: payload.authModel,
       });
     } else {
       console.log('[MQTT-Handler] 设备添加失败，不保存数据库');
@@ -1411,6 +1433,7 @@ export async function handlePassportAdd(
       type: payload.credentialType as import('./db-credentials').CredentialType,
       content: payload.content,
       auth_type_list: payload.authTypeList?.join(','),
+      auth_model: payload.authModel,
     });
     return { success: true, response: '已保存到数据库' };
   }
@@ -1453,7 +1476,7 @@ export async function handlePassportUpdate(
     tags: payload.tags?.join(','),
     enable: payload.enable,
     auth_model: payload.authModel,
-    auth_type_list: payload.authTypeList?.join(','),
+    auth_type_list: payload.authTypeList?.join(',') || undefined,
     box_list: payload.boxList,
   });
 
@@ -1517,8 +1540,9 @@ export async function handlePassportDelete(
 
     return result;
   } else if (isPalm) {
+    // 优先使用 custom_id（存储时的 userId），兼容旧数据回退到 personId
     const userId = credential
-      ? (extractUserIdFromFeatureData(credential.palm_feature || '') || personId)
+      ? (credential.custom_id || personId)
       : personId;
 
     console.log(`[${beijingTime()}] [MQTT-Handler] 掌纹删除：先删设备 userId=${userId}`);

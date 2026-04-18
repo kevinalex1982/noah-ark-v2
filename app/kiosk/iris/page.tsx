@@ -25,6 +25,7 @@ function IrisContent() {
   const pollingRef = useRef(true);
 
   const POLL_INTERVAL = 3000; // 3秒
+  const POLL_LOOKBACK = 6000; // 6秒时间窗口，确保与上次轮询有重叠
 
   const stopPolling = useCallback(() => {
     pollingRef.current = false;
@@ -69,7 +70,6 @@ function IrisContent() {
 
     const startTime = Date.now();
     const timeoutMs = countdown * 1000;
-    let lastCreateTime = 0; // 使用 lastCreateTime 来只查询新记录
 
     // 等待1秒后开始查询
     await new Promise(resolve => setTimeout(resolve, 1000));
@@ -79,83 +79,86 @@ function IrisContent() {
 
       try {
         // 通过后端代理查询虹膜设备
-        // 使用 lastCreateTime 参数，只查询比上次更新的记录
         const response = await fetch('/api/device/iris/records', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            startTime: Date.now() - 3000, // 3秒的时间窗口
+            startTime: Date.now() - POLL_LOOKBACK,
             endTime: Date.now(),
             count: 10,
-            lastCreateTime: lastCreateTime, // 关键：只返回比这个时间更新的记录
+            lastCreateTime: 0,
           }),
         });
 
         const result = await response.json();
-        console.log('[虹膜] 查询结果:', result.success, 'lastCreateTime:', lastCreateTime);
+        console.log('[虹膜] 查询结果:', result.success);
 
         if (result.success && result.data) {
           const data = result.data;
           if (data.errorCode === 0 && data.body && data.body.length > 0) {
             console.log('[虹膜] 收到记录:', data.body.length, '条');
 
-            // 更新 lastCreateTime 为最后一条记录的时间
-            // 记录按时间排序，最后一条是最新的
-            const lastRecord = data.body[data.body.length - 1];
-            if (lastRecord && lastRecord.createTime) {
-              lastCreateTime = lastRecord.createTime;
-              console.log('[虹膜] 更新 lastCreateTime:', lastCreateTime);
-            }
-
             // 检查是否有匹配的识别记录
+            // 将记录发送到服务端，用加密后的 identityId 进行比对
             let foundOther = false;
-            for (const record of data.body) {
-              console.log('[虹膜] 记录:', record.staffNum, 'success:', record.success, 'type:', record.type);
-              // 匹配条件：staffNum = identityId, success = true, type = 1（虹膜）
-              if (record.success && record.type === 1) {
-                if (record.staffNum === identityId) {
-                  console.log('[虹膜] 识别到用户:', identityId);
-                  setStatus('success');
-                  setMessage('认证成功');
-                  setMismatchHint(false);
-                  stopPolling();
+            const verifyResponse = await fetch('/api/device/iris/verify', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                identityId,
+                records: data.body,
+              }),
+            });
+            const verifyResult = await verifyResponse.json();
 
-                  // 上传通行记录到IAMS
-                  try {
-                    const uploadResponse = await fetch('/api/pass-log/upload', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({
-                        personId: identityId,
-                        credentialId: userInfo?.credentialId || 0,
-                        authTypes: ['iris'],
-                      }),
-                    });
-                    const uploadResult = await uploadResponse.json();
-                    if (!uploadResult.success) {
-                      console.log('[虹膜] 上传通行记录失败:', uploadResult.message);
-                      // TODO: 可以在成功页显示提示
-                    }
-                  } catch (err) {
-                    console.error('[虹膜] 上传通行记录异常:', err);
-                  }
-
-                  // 跳转到成功页面
-                  setTimeout(() => {
-                    const params = new URLSearchParams({
-                      result: 'success',
-                      name: userInfo?.personName || '',
-                      boxes: userInfo?.boxList || '',
-                    });
-                    router.push(`/kiosk/success?${params.toString()}`);
-                  }, 1500);
-                  return;
-                } else {
-                  // 识别到其他人
-                  foundOther = true;
-                  console.log('[虹膜] 识别到其他人:', record.staffNum);
-                }
+            if (verifyResult.success && verifyResult.match) {
+              console.log('[虹膜] 识别到用户:', identityId);
+              // 更新 userInfo
+              if (verifyResult.personName) {
+                setUserInfo(prev => prev || {
+                  personName: verifyResult.personName,
+                  boxList: '',
+                  credentialId: verifyResult.credentialId || 0,
+                });
               }
+              setStatus('success');
+              setMessage('认证成功');
+              setMismatchHint(false);
+              stopPolling();
+
+              // 上传通行记录到IAMS
+              try {
+                const uploadResponse = await fetch('/api/pass-log/upload', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    personId: identityId,
+                    credentialId: verifyResult.credentialId || userInfo?.credentialId || 0,
+                    authTypes: ['iris'],
+                  }),
+                });
+                const uploadResult = await uploadResponse.json();
+                if (!uploadResult.success) {
+                  console.log('[虹膜] 上传通行记录失败:', uploadResult.message);
+                }
+              } catch (err) {
+                console.error('[虹膜] 上传通行记录异常:', err);
+              }
+
+              // 跳转到成功页面
+              setTimeout(() => {
+                const params = new URLSearchParams({
+                  result: 'success',
+                  name: verifyResult.personName || userInfo?.personName || '',
+                  boxes: userInfo?.boxList || '',
+                });
+                router.push(`/kiosk/success?${params.toString()}`);
+              }, 1500);
+              return;
+            } else if (verifyResult.success && !verifyResult.match) {
+              // 识别到其他人
+              console.log('[虹膜] 识别到其他人');
+              foundOther = true;
             }
             if (foundOther) {
               setMismatchHint(true);

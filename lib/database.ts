@@ -242,33 +242,55 @@ export function saveDatabase(): void {
 
 /**
  * 根据用户编码（person_id）查询用户信息
+ * auth_type_list 取所有凭证行的并集，避免 LIMIT 1 随机取到不完整配置
  */
 export async function findByUserCode(userCode: string): Promise<{
   personId: string;
   personName: string;
   authTypeList: number[];
   authModel: number;
+  credentialId: number;
 } | null> {
   const database = getDatabase();
-  const result = await database.execute({
-    sql: 'SELECT DISTINCT person_id, person_name, auth_type_list, auth_model FROM credentials WHERE person_id = ? AND enable = 1 LIMIT 1',
+
+  // 基本信息 + credential_id 取第一条
+  const infoResult = await database.execute({
+    sql: 'SELECT person_id, person_name, auth_model, credential_id FROM credentials WHERE person_id = ? AND enable = 1 LIMIT 1',
     args: [userCode]
   });
 
-  if (result.rows.length === 0) {
-    return null;
+  if (infoResult.rows.length === 0) return null;
+
+  const row = infoResult.rows[0];
+
+  // auth_type_list = 所有凭证行的并集
+  const allAuthTypesResult = await database.execute({
+    sql: 'SELECT auth_type_list FROM credentials WHERE person_id = ? AND enable = 1 AND auth_type_list IS NOT NULL',
+    args: [userCode]
+  });
+
+  const mergedAuthTypeSet = new Set<number>();
+  for (const authRow of allAuthTypesResult.rows) {
+    const list = (authRow.auth_type_list as string || '')
+      .split(',')
+      .map(s => parseInt(s.trim(), 10))
+      .filter(n => !isNaN(n));
+    list.forEach(n => mergedAuthTypeSet.add(n));
   }
 
-  const row = result.rows[0];
-  const authTypeList = (row.auth_type_list as string || '')
-    .split(',')
-    .map(s => parseInt(s.trim(), 10))
-    .filter(n => !isNaN(n));
+  // 如果 auth_type_list 合并后为空，回退使用实际凭证类型
+  const typesResult = await database.execute({
+    sql: 'SELECT DISTINCT type FROM credentials WHERE person_id = ? AND enable = 1',
+    args: [userCode]
+  });
+  const actualTypes = typesResult.rows.map(r => r.type as number);
+  const authTypeList = mergedAuthTypeSet.size > 0 ? Array.from(mergedAuthTypeSet) : actualTypes;
 
   return {
     personId: row.person_id as string,
     personName: row.person_name as string,
-    authTypeList: authTypeList,
+    authTypeList,
     authModel: (row.auth_model as number) ?? 1,
+    credentialId: (row.credential_id as number) ?? 0,
   };
 }

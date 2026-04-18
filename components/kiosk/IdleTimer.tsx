@@ -16,7 +16,7 @@ interface IdleTimerProps {
   onTimeout?: () => void;
 }
 
-export default function IdleTimer({ onTimeout }: IdleTimerProps) {
+export default function IdleTimer({ onTimeout, resetKey }: IdleTimerProps & { resetKey?: string }) {
   const router = useRouter();
   const [countdown, setCountdown] = useState(IDLE_TIMEOUT);
   const [shouldRedirect, setShouldRedirect] = useState(false);
@@ -25,6 +25,13 @@ export default function IdleTimer({ onTimeout }: IdleTimerProps) {
   const resetCountdown = () => {
     setCountdown(IDLE_TIMEOUT);
   };
+
+  // 当 resetKey 变化时（步骤切换），重置倒计时
+  useEffect(() => {
+    if (resetKey !== undefined) {
+      resetCountdown();
+    }
+  }, [resetKey]);
 
   // 监听用户操作
   useEffect(() => {

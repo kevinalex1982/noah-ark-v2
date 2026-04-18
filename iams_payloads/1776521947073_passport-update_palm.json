@@ -1,0 +1,25 @@
+{
+  "op": "passport-update",
+  "data": {
+    "boxList": "",
+    "showInfo": [
+      "欢迎",
+      "光临"
+    ],
+    "opId": "15",
+    "type": 8,
+    "tags": [
+      1
+    ],
+    "authTypeList": "9,8,5",
+    "authModel": 2,
+    "passportVer": "nuoyadevhome5349d62c5faa4e08bd00f3798ebc192f",
+    "enable": 1,
+    "personId": "J9tVbz3Tq0Ja+qh4biPiDw==",
+    "id": 645,
+    "personType": "n"
+  },
+  "deviceId": "nuoyadevhome",
+  "requestId": "eb378ba6f7a24a28b6e5a1e864a6cfb2",
+  "time": 1776521947404
+}

@@ -64,8 +64,8 @@ export async function POST(request: Request) {
         console.error(`[PalmProxy] 请求失败:`, error.message);
         resolve(NextResponse.json({
           success: false,
-          error: error.message,
-        }));
+          error: '连接不上',
+        }, { status: 401 }));
       });
 
       req.on('timeout', () => {
@@ -73,8 +73,8 @@ export async function POST(request: Request) {
         req.destroy();
         resolve(NextResponse.json({
           success: false,
-          error: '请求超时',
-        }));
+          error: '连接不上',
+        }, { status: 401 }));
       });
 
       req.end();

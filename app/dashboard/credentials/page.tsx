@@ -591,7 +591,7 @@ export default function CredentialsPage() {
         </div>
 
         {/* Credentials Table */}
-        <div className="bg-white shadow rounded-lg overflow-hidden">
+        <div className="bg-white shadow rounded-lg overflow-x-auto">
           {loading ? (
             <div className="p-8 text-center text-gray-500">加载中...</div>
           ) : credentials.length === 0 ? (
@@ -601,9 +601,6 @@ export default function CredentialsPage() {
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    人员
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     用户编码
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -611,6 +608,12 @@ export default function CredentialsPage() {
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     类型
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    认证类型
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    认证列表
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     创建时间
@@ -623,10 +626,6 @@ export default function CredentialsPage() {
               <tbody className="bg-white divide-y divide-gray-200">
                 {credentials.map((cred) => (
                   <tr key={cred.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">{cred.person_name}</div>
-                      <div className="text-sm text-gray-500">{cred.person_id}</div>
-                    </td>
                     <td
                       className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 cursor-pointer select-all hover:text-blue-600"
                       onDoubleClick={() => handleDoubleClickDecrypt(cred.person_id)}
@@ -647,6 +646,12 @@ export default function CredentialsPage() {
                       }`}>
                         {CREDENTIAL_TYPES[cred.type]}
                       </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {cred.auth_model === 1 ? '单凭证识别' : cred.auth_model === 2 ? '多凭证组合识别' : cred.auth_model}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {cred.auth_type_list || '-'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {new Date(cred.created_at).toLocaleString('zh-CN')}

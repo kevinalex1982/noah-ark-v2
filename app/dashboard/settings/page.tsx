@@ -44,6 +44,9 @@ export default function SettingsPage() {
   const [showClientConfigDialog, setShowClientConfigDialog] = useState(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [unlockingIris, setUnlockingIris] = useState(false);
+  const [restartingBackend, setRestartingBackend] = useState(false);
+  const [clearingCache, setClearingCache] = useState(false);
+  const [version, setVersion] = useState('');
 
   const addToast = useCallback((toast: Omit<ToastMessage, 'id'>) => {
     const id = Date.now().toString();
@@ -97,6 +100,7 @@ export default function SettingsPage() {
   useEffect(() => {
     fetchSettings();
     fetchClientConfig();
+    fetch('/api/version').then(r => r.json()).then(d => { if (d.success) setVersion(d.version); }).catch(() => {});
   }, [fetchSettings, fetchClientConfig]);
 
   // 保存设置
@@ -247,6 +251,69 @@ export default function SettingsPage() {
     }
   };
 
+  // 重启后台服务
+  const handleRestartBackend = async () => {
+    setRestartingBackend(true);
+    try {
+      const result = await window.electronAPI?.restartBackend();
+      if (result?.success) {
+        addToast({
+          type: 'success',
+          title: '重启成功',
+          message: '后台服务已重启，页面已刷新',
+        });
+      } else {
+        addToast({
+          type: 'error',
+          title: '重启失败',
+          message: result?.message || '未知错误',
+        });
+      }
+    } catch (error: any) {
+      addToast({
+        type: 'error',
+        title: '重启异常',
+        message: error.message,
+      });
+    } finally {
+      setRestartingBackend(false);
+    }
+  };
+
+  // 清理缓存
+  const handleClearCache = async () => {
+    setClearingCache(true);
+    try {
+      const result = await window.electronAPI?.clearCache();
+      if (result?.success) {
+        addToast({
+          type: 'success',
+          title: '清理完成',
+          message: result.message || '缓存已清理',
+        });
+      } else {
+        addToast({
+          type: 'error',
+          title: '清理失败',
+          message: '未知错误',
+        });
+      }
+    } catch (error: any) {
+      addToast({
+        type: 'error',
+        title: '清理异常',
+        message: error.message,
+      });
+    } finally {
+      setClearingCache(false);
+    }
+  };
+
+  // 刷新页面
+  const handleReloadPage = async () => {
+    window.electronAPI?.reload();
+  };
+
   return (
     <div className="min-h-screen bg-gray-100">
       <Toast toasts={toasts} removeToast={removeToast} />
@@ -266,6 +333,9 @@ export default function SettingsPage() {
                 <span className="text-gray-600 group-hover:text-gray-800 font-medium">返回</span>
               </a>
               <h1 className="text-2xl font-bold text-gray-900">系统设置</h1>
+              {version && (
+                <span className="px-2 py-1 bg-gray-100 text-gray-500 rounded text-xs font-mono">v{version}</span>
+              )}
             </div>
             <nav className="flex space-x-4">
               <a href="/dashboard/devices" className="text-gray-600 hover:text-gray-900">设备管理</a>
@@ -430,39 +500,132 @@ export default function SettingsPage() {
               </div>
             </div>
 
-            {/* 虹膜设备工具 */}
+            {/* 设备工具 */}
             <div className="bg-white shadow rounded-lg p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-6">虹膜设备工具</h2>
+              <h2 className="text-lg font-semibold text-gray-900 mb-6">设备工具</h2>
 
-              <div className="py-4">
-                <label className="block text-sm font-medium text-gray-700">
-                  虹膜设备解锁
-                </label>
-                <p className="mt-1 text-sm text-gray-500 mb-4">
-                  服务异常退出时可能未解锁虹膜设备，点击发送解锁指令恢复设备可用状态
-                </p>
-                <button
-                  onClick={handleUnlockIris}
-                  disabled={unlockingIris}
-                  className="px-6 py-3 bg-gray-900 text-white rounded-lg font-medium hover:bg-black disabled:bg-gray-400 disabled:cursor-not-allowed transition-all duration-200 flex items-center space-x-2"
-                >
-                  {unlockingIris ? (
-                    <>
-                      <svg className="animate-spin -ml-1 mr-2 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                      </svg>
-                      <span>解锁中...</span>
-                    </>
-                  ) : (
-                    <>
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" />
-                      </svg>
-                      <span>解锁虹膜设备</span>
-                    </>
-                  )}
-                </button>
+              <div className="space-y-6">
+                {/* 虹膜设备解锁 */}
+                <div className="py-4 border-b">
+                  <label className="block text-sm font-medium text-gray-700">
+                    虹膜设备解锁
+                  </label>
+                  <p className="mt-1 text-sm text-gray-500 mb-4">
+                    服务异常退出时可能未解锁虹膜设备，点击发送解锁指令恢复设备可用状态
+                  </p>
+                  <button
+                    onClick={handleUnlockIris}
+                    disabled={unlockingIris}
+                    className="px-6 py-3 bg-gray-900 text-white rounded-lg font-medium hover:bg-black disabled:bg-gray-400 disabled:cursor-not-allowed transition-all duration-200 flex items-center space-x-2"
+                  >
+                    {unlockingIris ? (
+                      <>
+                        <svg className="animate-spin -ml-1 mr-2 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <span>解锁中...</span>
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" />
+                        </svg>
+                        <span>解锁虹膜设备</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {/* 重启后台服务 */}
+                <div className="py-4">
+                  <label className="block text-sm font-medium text-gray-700">
+                    重启后台服务
+                  </label>
+                  <p className="mt-1 text-sm text-gray-500 mb-4">
+                    重启 Next.js 后台服务（不关闭客户端），适用于服务异常或配置更改后刷新
+                  </p>
+                  <button
+                    onClick={handleRestartBackend}
+                    disabled={restartingBackend}
+                    className="px-6 py-3 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all duration-200 flex items-center space-x-2"
+                  >
+                    {restartingBackend ? (
+                      <>
+                        <svg className="animate-spin -ml-1 mr-2 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <span>重启中...</span>
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                        <span>重启后台服务</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* 缓存清理 */}
+            <div className="bg-white shadow rounded-lg p-6">
+              <h2 className="text-lg font-semibold text-gray-900 mb-6">缓存清理</h2>
+
+              <div className="space-y-6">
+                {/* 清理缓存 */}
+                <div className="py-4 border-b">
+                  <label className="block text-sm font-medium text-gray-700">
+                    清理系统缓存
+                  </label>
+                  <p className="mt-1 text-sm text-gray-500 mb-4">
+                    清理 Next.js 编译缓存和浏览器缓存。适用于页面显示异常、凭证管理列表缺少列等问题
+                  </p>
+                  <button
+                    onClick={handleClearCache}
+                    disabled={clearingCache}
+                    className="px-6 py-3 bg-gray-900 text-white rounded-lg font-medium hover:bg-black disabled:bg-gray-400 disabled:cursor-not-allowed transition-all duration-200 flex items-center space-x-2"
+                  >
+                    {clearingCache ? (
+                      <>
+                        <svg className="animate-spin -ml-1 mr-2 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <span>清理中...</span>
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                        <span>清理缓存</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {/* 刷新页面 */}
+                <div className="py-4">
+                  <label className="block text-sm font-medium text-gray-700">
+                    刷新页面
+                  </label>
+                  <p className="mt-1 text-sm text-gray-500 mb-4">
+                    重新加载当前页面，获取最新的页面代码。建议先清理缓存再刷新
+                  </p>
+                  <button
+                    onClick={handleReloadPage}
+                    className="px-6 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-all duration-200 flex items-center space-x-2"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    <span>刷新页面</span>
+                  </button>
+                </div>
               </div>
             </div>
 
