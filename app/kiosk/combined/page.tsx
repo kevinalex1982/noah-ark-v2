@@ -471,7 +471,7 @@ function CombinedContent() {
   // 密码验证
   const handlePasswordSubmit = useCallback(async () => {
     if (password.length < 4) {
-      setPasswordError('密码至少4位');
+      setPasswordError('密码至少5位');
       return;
     }
 

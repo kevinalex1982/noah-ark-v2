@@ -430,6 +430,7 @@ export async function syncToIrisDeviceWithoutLock(
     faceImage?: string;
     openDoor?: boolean;
     purview?: number;
+    singleIrisAllowed?: number;
   },
   skipDebugLog?: boolean,
   skipBmpConversion?: boolean  // 新参数：跳过 BMP 转换
@@ -470,7 +471,7 @@ export async function syncToIrisDeviceWithoutLock(
       purview: payload.purview || 30,
       purviewEndTime: 0.0,
       purviewStartTime: 0.0,
-      singleIrisAllowed: 0,
+      singleIrisAllowed: payload.singleIrisAllowed ?? 0,
     };
 
     console.log(`[DeviceSync] 下发虹膜特征(无锁定)到 ${endpoint}`);

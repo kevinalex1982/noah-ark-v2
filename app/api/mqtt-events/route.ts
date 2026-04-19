@@ -125,9 +125,9 @@ export async function POST(request: NextRequest) {
       ...body,
     };
 
-    // 保留最近200条记录
+    // 保留最近100条记录
     events.unshift(newEvent);
-    if (events.length > 200) {
+    if (events.length > 100) {
       events.pop();
     }
 

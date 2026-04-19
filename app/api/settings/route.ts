@@ -40,6 +40,7 @@ export async function POST(request: NextRequest) {
       mqttUsername?: string;
       mqttPassword?: string;
       aesEnabled?: boolean;
+      adminPassword?: string;
     } = {};
 
     if (typeof body.authTimeout === 'number' && body.authTimeout > 0) {
@@ -80,6 +81,10 @@ export async function POST(request: NextRequest) {
 
     if (typeof body.aesEnabled === 'boolean') {
       updates.aesEnabled = body.aesEnabled;
+    }
+
+    if (typeof body.adminPassword === 'string' && body.adminPassword.trim()) {
+      updates.adminPassword = body.adminPassword.trim();
     }
 
     if (Object.keys(updates).length === 0) {

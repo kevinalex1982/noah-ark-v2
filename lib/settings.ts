@@ -23,6 +23,7 @@ const DEFAULT_SETTINGS: SystemSettings = {
   mqttUsername: 'yq-device',  // MQTT用户名
   mqttPassword: 'yqyq123!@#',  // MQTT密码
   aesEnabled: true,       // 是否启用AES加密（IAMS下发的用户编码是AES加密密文）
+  adminPassword: '12345', // 管理员密码（底部管理员按钮验证用）
 };
 
 // 设置类型定义
@@ -37,6 +38,7 @@ export interface SystemSettings {
   mqttUsername: string;       // MQTT用户名
   mqttPassword: string;       // MQTT密码
   aesEnabled: boolean;        // 是否启用AES加密
+  adminPassword: string;      // 管理员密码
 }
 
 // 内存缓存
@@ -73,6 +75,7 @@ export function getSettings(): SystemSettings {
       mqttUsername: cachedSettings.mqttUsername,
       mqttPassword: cachedSettings.mqttPassword,
       aesEnabled: cachedSettings.aesEnabled,
+      adminPassword: cachedSettings.adminPassword || DEFAULT_SETTINGS.adminPassword,
     };
   }
 
@@ -93,6 +96,7 @@ export function getSettings(): SystemSettings {
       mqttUsername: settings.mqttUsername ?? DEFAULT_SETTINGS.mqttUsername,
       mqttPassword: settings.mqttPassword ?? DEFAULT_SETTINGS.mqttPassword,
       aesEnabled: settings.aesEnabled ?? DEFAULT_SETTINGS.aesEnabled,
+      adminPassword: settings.adminPassword ?? DEFAULT_SETTINGS.adminPassword,
     };
 
     return {
@@ -106,6 +110,7 @@ export function getSettings(): SystemSettings {
       mqttUsername: cachedSettings.mqttUsername,
       mqttPassword: cachedSettings.mqttPassword,
       aesEnabled: cachedSettings.aesEnabled,
+      adminPassword: cachedSettings.adminPassword,
     };
   } catch (error: any) {
     console.error('[Settings] 读取设置失败:', error.message);
@@ -132,6 +137,7 @@ export function updateSettings(newSettings: Partial<SystemSettings>): SystemSett
     mqttUsername: newSettings.mqttUsername ?? currentSettings.mqttUsername,
     mqttPassword: newSettings.mqttPassword ?? currentSettings.mqttPassword,
     aesEnabled: newSettings.aesEnabled ?? currentSettings.aesEnabled,
+    adminPassword: newSettings.adminPassword ?? currentSettings.adminPassword,
   };
 
   try {

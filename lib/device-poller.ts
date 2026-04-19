@@ -133,8 +133,6 @@ async function pollPalmDevice() {
         credential_count: result.count !== null ? result.count : (cached?.credential_count ?? null),
         last_check: now,
       });
-
-      console.log(`[Poller] 掌纹 ${device.device_id}: online=${result.online}, count=${result.count}`);
     }
   } catch (e) {
     console.error('[Poller] 掌纹轮巡异常:', e);
@@ -157,8 +155,6 @@ async function pollIrisDevice() {
         credential_count: result.count,
         last_check: new Date().toISOString(),
       });
-
-      console.log(`[Poller] 虹膜 ${device.device_id}: online=${result.online}, count=${result.count}`);
     }
   } catch (e) {
     console.error('[Poller] 虹膜轮巡异常:', e);

@@ -152,12 +152,51 @@ function getNodePath(): string {
 let nextProcess: ReturnType<typeof spawn> | null = null;
 
 /**
+ * 获取日志文件名（带日期后缀，如 startup-2026-04-19.log）
+ */
+function getLogFileName(base: string): string {
+  const today = new Date();
+  // 使用北京时间 (UTC+8)
+  const dateStr = new Date(today.getTime() + 8 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
+  return `${base}-${dateStr}.log`;
+}
+
+/**
+ * 清理 3 天前的旧日志文件
+ */
+function cleanOldLogs(maxAgeDays: number = 3): void {
+  const userDataDir = app.getPath('userData');
+  const logDir = path.join(userDataDir, 'logs');
+  if (!fs.existsSync(logDir)) return;
+
+  const now = Date.now();
+  const maxAgeMs = maxAgeDays * 24 * 60 * 60 * 1000;
+
+  try {
+    const files = fs.readdirSync(logDir);
+    for (const file of files) {
+      if (!file.endsWith('.log')) continue;
+      const filePath = path.join(logDir, file);
+      const stat = fs.statSync(filePath);
+      if (now - stat.mtimeMs > maxAgeMs) {
+        fs.unlinkSync(filePath);
+        console.log(`[Electron] 已删除过期日志: ${file}`);
+      }
+    }
+  } catch (error) {
+    console.error('[Electron] 清理旧日志失败:', error);
+  }
+}
+
+/**
  * 写入启动日志到文件（AppData 日志目录）
  */
 function writeLog(message: string, level: 'info' | 'error' | 'warn' = 'info'): void {
   const userDataDir = app.getPath('userData');
   const logDir = path.join(userDataDir, 'logs');
-  const logFile = path.join(logDir, 'startup.log');
+  const logFile = path.join(logDir, getLogFileName('startup'));
 
   if (!require('fs').existsSync(logDir)) {
     require('fs').mkdirSync(logDir, { recursive: true });
@@ -175,7 +214,7 @@ function writeLog(message: string, level: 'info' | 'error' | 'warn' = 'info'): v
 function writeNextJsLog(message: string, level: 'info' | 'error' = 'info'): void {
   const userDataDir = app.getPath('userData');
   const logDir = path.join(userDataDir, 'logs');
-  const logFile = path.join(logDir, 'nextjs.log');
+  const logFile = path.join(logDir, getLogFileName('nextjs'));
 
   if (!require('fs').existsSync(logDir)) {
     require('fs').mkdirSync(logDir, { recursive: true });
@@ -465,6 +504,32 @@ function createWindow(): void {
     mainWindow = null;
   });
 
+  // 拦截关闭按钮，弹出对话框选择关闭/最小化/取消
+  mainWindow.on('close', (event) => {
+    if (mainWindow === null) return;
+
+    const choice = dialog.showMessageBoxSync(mainWindow, {
+      type: 'question',
+      buttons: ['最小化到托盘', '关闭程序', '取消'],
+      defaultId: 0,
+      cancelId: 2,
+      title: '关闭确认',
+      message: '请选择关闭后的行为',
+      detail: '最小化到托盘：程序继续在后台运行，点击托盘图标可恢复\n关闭程序：完全退出应用',
+    });
+
+    if (choice === 0) {
+      // 最小化到托盘
+      event.preventDefault();
+      mainWindow?.hide();
+    } else if (choice === 1) {
+      // 关闭程序 — 不拦截，继续执行默认关闭行为
+    } else {
+      // 取消
+      event.preventDefault();
+    }
+  });
+
   mainWindow.webContents.on('did-fail-load', (event, errorCode) => {
     if (errorCode === -102) {
       mainWindow?.loadURL(`data:text/html,
@@ -484,10 +549,32 @@ function createWindow(): void {
 }
 
 /**
- * 创建一个简单的托盘图标（浅灰色圆角方块 + 白色字母 N）
- * 使用亮色以便在深色和浅色托盘栏上都可见
+ * 创建托盘图标（使用应用 favicon.ico）
+ * 如果 favicon 加载失败，回退到生成的亮色圆角方块
  */
 function createTrayIcon(): NativeImage {
+  // 尝试加载 favicon.ico
+  let faviconPath: string;
+  if (!app.isPackaged) {
+    // 开发模式：__dirname = electron/ → ../app/favicon.ico
+    faviconPath = path.join(__dirname, '../app/favicon.ico');
+  } else {
+    // 打包模式：extraResources 把 ../app 复制到 resources/app/
+    faviconPath = path.join(process.resourcesPath, 'app', 'app', 'favicon.ico');
+  }
+  if (fs.existsSync(faviconPath)) {
+    try {
+      const img = nativeImage.createFromPath(faviconPath);
+      if (!img.isEmpty()) {
+        // 缩放托盘图标到合适大小
+        return img.resize({ width: 16, height: 16 });
+      }
+    } catch (e) {
+      console.warn('[Electron] 加载 favicon 失败，使用回退图标:', e);
+    }
+  }
+
+  // 回退：生成亮色圆角方块
   const size = 16;
   const canvas = Buffer.alloc(size * size * 4); // RGBA
 
@@ -523,7 +610,6 @@ function createTrayIcon(): NativeImage {
         canvas[idx + 2] = 0;
         canvas[idx + 3] = 0;
       } else {
-        // 亮色背景（白色）
         canvas[idx] = 255;     // R
         canvas[idx + 1] = 255; // G
         canvas[idx + 2] = 255; // B
@@ -588,7 +674,7 @@ function createTray(): void {
     {
       label: '查看服务器日志',
       click: () => {
-        const logFile = path.join(app.getPath('userData'), 'logs', 'nextjs.log');
+        const logFile = path.join(app.getPath('userData'), 'logs', getLogFileName('nextjs'));
         if (fs.existsSync(logFile)) {
           shell.openPath(logFile);
         } else {
@@ -614,7 +700,7 @@ function createTray(): void {
     {
       label: '查看启动日志',
       click: () => {
-        const logFile = path.join(app.getPath('userData'), 'logs', 'startup.log');
+        const logFile = path.join(app.getPath('userData'), 'logs', getLogFileName('startup'));
         if (fs.existsSync(logFile)) {
           shell.openPath(logFile);
         } else {
@@ -683,18 +769,8 @@ function checkAndClearOldData(): void {
  * 应用启动
  */
 async function main() {
-  // 清空旧日志（每次启动只保留当前会话）
-  const userDataDir = app.getPath('userData');
-  const logDir = path.join(userDataDir, 'logs');
-  if (fs.existsSync(logDir)) {
-    try {
-      fs.readdirSync(logDir).forEach(f => {
-        if (f === 'startup.log' || f === 'nextjs.log') {
-          fs.writeFileSync(path.join(logDir, f), '', 'utf-8');
-        }
-      });
-    } catch {}
-  }
+  // 清理 3 天前的旧日志文件
+  cleanOldLogs(3);
 
   writeLog('========== 应用启动 ==========', 'info');
   writeLog(`平台: ${process.platform}, 架构: ${process.arch}`, 'info');
@@ -863,10 +939,12 @@ const gotTheLock = app.requestSingleInstanceLock();
 // 全局错误处理
 process.on('uncaughtException', (error) => {
   try {
-    const logPath = path.join(app.getPath('userData'), 'logs', 'startup.log');
+    const userDataDir = app.getPath('userData');
+    const logDir = path.join(userDataDir, 'logs');
+    const logPath = path.join(logDir, getLogFileName('startup'));
     const timestamp = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
     const line = `[${timestamp}] [FATAL] 未捕获异常: ${error.message}\n堆栈: ${error.stack}\n`;
-    require('fs').mkdirSync(path.dirname(logPath), { recursive: true });
+    require('fs').mkdirSync(logDir, { recursive: true });
     require('fs').appendFileSync(logPath, line, 'utf-8');
   } catch {}
   console.error('[FATAL] 未捕获异常:', error);
@@ -874,10 +952,12 @@ process.on('uncaughtException', (error) => {
 
 process.on('unhandledRejection', (reason) => {
   try {
-    const logPath = path.join(app.getPath('userData'), 'logs', 'startup.log');
+    const userDataDir = app.getPath('userData');
+    const logDir = path.join(userDataDir, 'logs');
+    const logPath = path.join(logDir, getLogFileName('startup'));
     const timestamp = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
     const line = `[${timestamp}] [FATAL] 未处理 Promise 拒绝: ${reason}\n`;
-    require('fs').mkdirSync(path.dirname(logPath), { recursive: true });
+    require('fs').mkdirSync(logDir, { recursive: true });
     require('fs').appendFileSync(logPath, line, 'utf-8');
   } catch {}
   console.error('[FATAL] 未处理 Promise 拒绝:', reason);

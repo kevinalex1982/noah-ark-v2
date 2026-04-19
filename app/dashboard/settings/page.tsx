@@ -17,10 +17,20 @@ interface SystemSettings {
   mqttUsername: string;
   mqttPassword: string;
   aesEnabled: boolean;
+  adminPassword: string;
 }
 
 interface ClientConfig {
   serverUrl: string;
+}
+
+// 模拟 IAMS 下发结果接口
+interface SimulateResult {
+  personName: string;
+  credentialType: number;
+  targetDevice: string;
+  status: 'queued' | 'skipped';
+  message: string;
 }
 
 export default function SettingsPage() {
@@ -35,6 +45,7 @@ export default function SettingsPage() {
     mqttUsername: 'yq-device',
     mqttPassword: 'yqyq123!@#',
     aesEnabled: true,
+    adminPassword: '12345',
   });
   const [clientConfig, setClientConfig] = useState<ClientConfig>({
     serverUrl: 'http://localhost:3001',
@@ -47,6 +58,17 @@ export default function SettingsPage() {
   const [restartingBackend, setRestartingBackend] = useState(false);
   const [clearingCache, setClearingCache] = useState(false);
   const [version, setVersion] = useState('');
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [showPasswordDialog, setShowPasswordDialog] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordChangeError, setPasswordChangeError] = useState('');
+  const [passwordFocusField, setPasswordFocusField] = useState<'new' | 'confirm' | null>(null); // 虚拟键盘焦点
+  // 凭证批量测试状态
+  const [addComboLoading, setAddComboLoading] = useState(false);
+  const [addSingleLoading, setAddSingleLoading] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [batchResult, setBatchResult] = useState<{ success: boolean; message: string; logs?: string[]; data?: any } | null>(null);
 
   const addToast = useCallback((toast: Omit<ToastMessage, 'id'>) => {
     const id = Date.now().toString();
@@ -313,6 +335,46 @@ export default function SettingsPage() {
   const handleReloadPage = async () => {
     window.electronAPI?.reload();
   };
+
+  // 修改管理员密码
+  const handleChangePassword = async () => {
+    if (newPassword.length < 5) {
+      setPasswordChangeError('密码至少5位');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordChangeError('两次输入的密码不一致');
+      return;
+    }
+    setChangingPassword(true);
+    setPasswordChangeError('');
+    try {
+      const response = await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...settings, adminPassword: newPassword }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        setSettings((prev) => ({ ...prev, adminPassword: newPassword }));
+        setShowPasswordDialog(false);
+        setNewPassword('');
+        setConfirmPassword('');
+        addToast({
+          type: 'success',
+          title: '密码已修改',
+          message: '管理员密码已更新',
+        });
+      } else {
+        setPasswordChangeError('修改失败：' + (data.error || '未知错误'));
+      }
+    } catch (error: any) {
+      setPasswordChangeError('修改异常：' + error.message);
+    } finally {
+      setChangingPassword(false);
+    }
+  };
+
 
   return (
     <div className="min-h-screen bg-gray-100">
@@ -629,6 +691,28 @@ export default function SettingsPage() {
               </div>
             </div>
 
+            {/* 管理员密码设置 */}
+            <div className="bg-white shadow rounded-lg p-6">
+              <h2 className="text-lg font-semibold text-gray-900 mb-6">管理员密码</h2>
+              <div className="py-4">
+                <label className="block text-sm font-medium text-gray-700">
+                  修改管理员密码
+                </label>
+                <p className="mt-1 text-sm text-gray-500 mb-4">
+                  用于访问底部菜单栏的管理员功能，当前密码用于登录验证
+                </p>
+                <button
+                  onClick={() => setShowPasswordDialog(true)}
+                  className="px-6 py-3 bg-gray-900 text-white rounded-lg font-medium hover:bg-black transition-all duration-200 flex items-center space-x-2"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/>
+                  </svg>
+                  <span>修改密码</span>
+                </button>
+              </div>
+            </div>
+
             {/* IAMS上报设置 */}
             <div className="bg-white shadow rounded-lg p-6">
               <h2 className="text-lg font-semibold text-gray-900 mb-6">IAMS上报设置</h2>
@@ -734,6 +818,125 @@ export default function SettingsPage() {
               </div>
             </div>
 
+            {/* 测试区域 */}
+            <div className="bg-white shadow rounded-lg p-6">
+              <h2 className="text-lg font-semibold text-gray-900 mb-6">测试区域</h2>
+              <p className="text-sm text-gray-500 mb-4">
+                每次添加4条凭证（密码、胁迫码、虹膜、掌纹），auth_type_list = "5,7,8,9"。
+                同时同步到虹膜和掌纹设备。
+              </p>
+              <div className="flex flex-wrap items-center gap-4 mb-4">
+                <div className="text-sm bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+                  <span className="text-gray-500">人员编码：</span>
+                  <code className="font-mono font-bold text-gray-900">112233</code>
+                  <span className="text-gray-400 mx-2">|</span>
+                  <span className="text-gray-500">密码：</span>
+                  <code className="font-mono font-bold text-gray-900">123456</code>
+                  <span className="text-gray-400 mx-2">|</span>
+                  <span className="text-gray-500">胁迫码：</span>
+                  <code className="font-mono font-bold text-gray-900">123457</code>
+                </div>
+                <button
+                  onClick={async () => {
+                    setAddComboLoading(true);
+                    setBatchResult(null);
+                    try {
+                      const res = await fetch('/api/test/credentials-batch', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ mode: 'add-combo' }),
+                      });
+                      const data = await res.json();
+                      setBatchResult(data);
+                    } catch (e) {
+                      setBatchResult({ success: false, message: (e as Error).message });
+                    } finally {
+                      setAddComboLoading(false);
+                    }
+                  }}
+                  disabled={addComboLoading}
+                  className={`px-5 py-3 rounded-lg text-sm font-medium transition-all duration-200 ${
+                    addComboLoading ? 'bg-gray-300 text-gray-500 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700 shadow-sm'
+                  }`}
+                >
+                  {addComboLoading ? '添加中...' : '模拟添加凭证（组合认证）'}
+                </button>
+                <button
+                  onClick={async () => {
+                    setAddSingleLoading(true);
+                    setBatchResult(null);
+                    try {
+                      const res = await fetch('/api/test/credentials-batch', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ mode: 'add-single' }),
+                      });
+                      const data = await res.json();
+                      setBatchResult(data);
+                    } catch (e) {
+                      setBatchResult({ success: false, message: (e as Error).message });
+                    } finally {
+                      setAddSingleLoading(false);
+                    }
+                  }}
+                  disabled={addSingleLoading}
+                  className={`px-5 py-3 rounded-lg text-sm font-medium transition-all duration-200 ${
+                    addSingleLoading ? 'bg-gray-300 text-gray-500 cursor-not-allowed' : 'bg-green-600 text-white hover:bg-green-700 shadow-sm'
+                  }`}
+                >
+                  {addSingleLoading ? '添加中...' : '模拟添加凭证（单独认证）'}
+                </button>
+                <button
+                  onClick={async () => {
+                    setDeleteLoading(true);
+                    setBatchResult(null);
+                    try {
+                      const res = await fetch('/api/test/credentials-batch', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ mode: 'delete' }),
+                      });
+                      const data = await res.json();
+                      setBatchResult(data);
+                    } catch (e) {
+                      setBatchResult({ success: false, message: (e as Error).message });
+                    } finally {
+                      setDeleteLoading(false);
+                    }
+                  }}
+                  disabled={deleteLoading}
+                  className={`px-5 py-3 rounded-lg text-sm font-medium transition-all duration-200 ${
+                    deleteLoading ? 'bg-gray-300 text-gray-500 cursor-not-allowed' : 'bg-red-600 text-white hover:bg-red-700 shadow-sm'
+                  }`}
+                >
+                  {deleteLoading ? '删除中...' : '模拟删除所有凭证'}
+                </button>
+              </div>
+
+              {/* 执行结果 */}
+              {batchResult && (
+                <div className={`rounded-lg text-sm ${batchResult.success ? 'bg-green-50 border border-green-200 text-green-800' : 'bg-red-50 border border-red-200 text-red-800'}`}>
+                  <div className="p-3">
+                    <div className="font-bold">{batchResult.success ? '✅ 成功' : '❌ 失败'}</div>
+                    <div>{batchResult.message || ''}</div>
+                    {batchResult.data && (
+                      <pre className="mt-2 text-xs bg-white p-2 rounded overflow-x-auto max-h-40">
+                        {JSON.stringify(batchResult.data, null, 2)}
+                      </pre>
+                    )}
+                  </div>
+                  {batchResult.logs && batchResult.logs.length > 0 && (
+                    <div className="border-t border-green-200 bg-white rounded-b-lg">
+                      <div className="px-3 py-2 text-xs font-bold text-gray-500">执行日志：</div>
+                      <pre className="px-3 pb-3 text-xs bg-gray-900 text-green-300 rounded-b-lg overflow-x-auto max-h-60 whitespace-pre-wrap">
+                        {batchResult.logs.join('\n')}
+                      </pre>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
             {/* 提示信息 */}
             <div className="bg-amber-50 p-4 rounded-md">
               <p className="text-sm text-amber-700">
@@ -795,6 +998,101 @@ export default function SettingsPage() {
                 className="flex-1 px-4 py-3 bg-gray-900 text-white rounded-lg font-medium hover:bg-black transition-all"
               >
                 保存并重启
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 修改管理员密码对话框 */}
+      {showPasswordDialog && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={() => { setShowPasswordDialog(false); setNewPassword(''); setConfirmPassword(''); setPasswordChangeError(''); setPasswordFocusField(null); }}>
+          <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-gray-900 mb-4 text-center">修改管理员密码</h3>
+
+            {/* 新密码显示 */}
+            <div
+              onClick={() => setPasswordFocusField('new')}
+              className={`mb-3 cursor-pointer rounded-lg border-2 px-4 py-3 text-lg text-center transition-colors
+                ${passwordFocusField === 'new' ? 'border-gray-900 bg-white' : 'border-gray-200 bg-gray-50'}`}
+            >
+              <span className="text-xs text-gray-400 block mb-1">新密码</span>
+              <span className="text-2xl tracking-[0.5em] text-gray-900">
+                {'●'.repeat(newPassword.length)}
+              </span>
+              {newPassword.length === 0 && (
+                <span className="text-gray-400 text-sm"> 点击输入</span>
+              )}
+            </div>
+
+            {/* 确认密码显示 */}
+            <div
+              onClick={() => setPasswordFocusField('confirm')}
+              className={`mb-3 cursor-pointer rounded-lg border-2 px-4 py-3 text-lg text-center transition-colors
+                ${passwordFocusField === 'confirm' ? 'border-gray-900 bg-white' : 'border-gray-200 bg-gray-50'}`}
+            >
+              <span className="text-xs text-gray-400 block mb-1">确认密码</span>
+              <span className="text-2xl tracking-[0.5em] text-gray-900">
+                {'●'.repeat(confirmPassword.length)}
+              </span>
+              {confirmPassword.length === 0 && (
+                <span className="text-gray-400 text-sm"> 点击输入</span>
+              )}
+            </div>
+
+            {passwordChangeError && (
+              <p className="text-sm text-red-600 mb-3 text-center">{passwordChangeError}</p>
+            )}
+
+            {/* 数字键盘 */}
+            <div className="grid grid-cols-3 gap-2 mb-3">
+              {['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', '⌫'].map((key, i) => (
+                key === '' ? (
+                  <div key={i} />
+                ) : (
+                  <button
+                    key={i}
+                    onClick={() => {
+                      if (!passwordFocusField) return;
+                      if (key === '⌫') {
+                        if (passwordFocusField === 'new') {
+                          setNewPassword(prev => prev.slice(0, -1));
+                        } else {
+                          setConfirmPassword(prev => prev.slice(0, -1));
+                        }
+                      } else {
+                        if (passwordFocusField === 'new') {
+                          setNewPassword(prev => prev + key);
+                        } else {
+                          setConfirmPassword(prev => prev + key);
+                        }
+                      }
+                      setPasswordChangeError('');
+                    }}
+                    className={`h-11 rounded-xl font-bold text-lg transition-all active:scale-95
+                      ${key === '⌫'
+                        ? 'bg-red-100 text-red-600 hover:bg-red-200'
+                        : 'bg-gray-100 text-gray-900 hover:bg-gray-200'}`}
+                  >
+                    {key}
+                  </button>
+                )
+              ))}
+            </div>
+
+            <div className="flex space-x-3">
+              <button
+                onClick={() => { setShowPasswordDialog(false); setNewPassword(''); setConfirmPassword(''); setPasswordChangeError(''); setPasswordFocusField(null); }}
+                className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition-all"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleChangePassword}
+                disabled={changingPassword}
+                className="flex-1 px-4 py-3 bg-gray-900 text-white rounded-lg font-medium hover:bg-black disabled:bg-gray-400 disabled:cursor-not-allowed transition-all"
+              >
+                {changingPassword ? '修改中...' : '确认修改'}
               </button>
             </div>
           </div>

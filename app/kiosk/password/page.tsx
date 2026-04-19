@@ -41,8 +41,8 @@ function PasswordContent() {
   };
 
   const handleSubmit = async () => {
-    if (password.length < 4) {
-      setError('密码至少4位');
+    if (password.length < 5) {
+      setError('密码至少5位');
       return;
     }
 
@@ -151,7 +151,7 @@ function PasswordContent() {
                 placeholder="请输入密码"
               />
               <p className="text-center text-sm text-gray-500 mt-2">
-                已输入 {password.length} 位 {password.length >= 4 ? '✓' : `(至少 4 位)`}
+                已输入 {password.length} 位 {password.length >= 5 ? '✓' : `(至少 5 位)`}
               </p>
               {error && (
                 <p className="text-center text-sm text-red-500 mt-2 font-medium">
