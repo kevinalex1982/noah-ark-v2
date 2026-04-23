@@ -1,0 +1,32 @@
+# Graphify ignore file
+# Same syntax as .gitignore
+
+# 打包输出（源码副本，不需要扫描）
+electron/release/
+
+# 独立子项目（微信桥接工具，不属于诺亚方舟主项目）
+skills/
+
+# 构建产物
+.next/
+dist/
+node_modules/
+
+# 预览 HTML
+ui-design-preview/
+
+# 缓存和数据文件
+data/
+graphify-out/
+*.db
+
+# 虹膜/掌纹测试数据（包含图片和特征数据）
+iris_user_*.json
+iris_data.json
+iris_test.json
+iris_req_*.json
+iris_upload.json
+palm_user_*.json
+palm_data.json
+palm_req_*.json
+palm_upload.json

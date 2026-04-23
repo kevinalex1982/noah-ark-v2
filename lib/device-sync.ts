@@ -1397,24 +1397,29 @@ export async function handlePassportAdd(
     // 掌纹新增：先同步设备
     console.log('[MQTT-Handler] 掌纹新增：先同步设备');
 
-    const userId = extractUserIdFromFeatureData(palmFeature || '') || payload.personId;
-    const palmMemberName = payload.personName || payload.personId || '';  // 默认用 personId
+    // 从 content 解析 userId 和 featureData（格式: "userId:featureData"）
+    const parsed = parsePalmContent(payload.content || '');
+    const userId = parsed.userId || payload.personId;
+    const featureData = parsed.featureData || '';
+
+    console.log(`[MQTT-Handler] 掌纹content解析: userId=${userId}, featureData长度=${featureData.length}`);
 
     const result = await syncToPalmDeviceMQTT(device.endpoint, {
       userId,
-      featureData: palmFeature || '',
+      featureData,
     });
 
     // ⚠️ 设备成功才保存数据库
     if (result.success) {
       console.log('[MQTT-Handler] 设备添加成功，保存数据库');
-      console.log(`[MQTT-Handler] 提取的userId: ${userId}，存储到custom_id`);
+      console.log(`[MQTT-Handler] 存储userId到custom_id: ${userId}`);
       const { upsertCredential } = await import('./db-credentials');
       await upsertCredential({
         person_id: payload.personId,
-        person_name: palmMemberName,
+        person_name: payload.personName || payload.personId || '',
         credential_id: payload.credentialId,
         type: payload.credentialType as import('./db-credentials').CredentialType,
+        content: payload.content,  // 完整存储 "userId:featureData"
         auth_type_list: payload.authTypeList?.join(','),
         custom_id: userId,  // 存储掌纹设备上的userId
         auth_model: payload.authModel,
@@ -1568,7 +1573,24 @@ export async function handlePassportDelete(
 }
 
 /**
- * 从掌纹特征数据中提取 userId
+ * 解析掌纹凭证的 content 字段
+ * 格式: "userId:featureData"（英文冒号分隔）
+ */
+function parsePalmContent(content: string): { userId: string; featureData: string } {
+  if (!content) return { userId: '', featureData: '' };
+
+  const colonIndex = content.indexOf(':');
+  if (colonIndex < 0) return { userId: '', featureData: content };
+
+  return {
+    userId: content.substring(0, colonIndex),
+    featureData: content.substring(colonIndex + 1),
+  };
+}
+
+/**
+ * 从掌纹特征数据中提取 userId（已废弃，保留兼容旧数据）
+ * @deprecated 掌纹 userId 现在存储在 content 字段中，格式为 "userId:featureData"
  */
 function extractUserIdFromFeatureData(featureData: string): string {
   if (!featureData) return '';
