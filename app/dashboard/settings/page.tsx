@@ -55,6 +55,9 @@ export default function SettingsPage() {
   const [showClientConfigDialog, setShowClientConfigDialog] = useState(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [unlockingIris, setUnlockingIris] = useState(false);
+  const [lockingIris, setLockingIris] = useState(false);
+  const [testingIrisUpload, setTestingIrisUpload] = useState(false);
+  const [irisTestResult, setIrisTestResult] = useState<{ success: boolean; message: string; logs?: string[] } | null>(null);
   const [restartingBackend, setRestartingBackend] = useState(false);
   const [clearingCache, setClearingCache] = useState(false);
   const [version, setVersion] = useState('');
@@ -273,6 +276,50 @@ export default function SettingsPage() {
     }
   };
 
+  // 虹膜设备锁定
+  const handleLockIris = async () => {
+    setLockingIris(true);
+    try {
+      const response = await fetch('/api/devices/iris-lock', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ state: 1 }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        addToast({ type: 'success', title: '锁定成功', message: '虹膜设备已锁定' });
+      } else {
+        addToast({ type: 'error', title: '锁定失败', message: data.error });
+      }
+    } catch (error: any) {
+      addToast({ type: 'error', title: '锁定异常', message: error.message });
+    } finally {
+      setLockingIris(false);
+    }
+  };
+
+  // 虹膜测试上传（读取 iris_last_request.json，锁定→500ms→上传→解锁）
+  const handleTestIrisUpload = async () => {
+    setTestingIrisUpload(true);
+    setIrisTestResult(null);
+    try {
+      const response = await fetch('/api/devices/test-iris-upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await response.json();
+      setIrisTestResult({
+        success: data.success,
+        message: data.success ? '上传成功' : data.error || '上传失败',
+        logs: data.logs,
+      });
+    } catch (error: any) {
+      setIrisTestResult({ success: false, message: error.message });
+    } finally {
+      setTestingIrisUpload(false);
+    }
+  };
+
   // 重启后台服务
   const handleRestartBackend = async () => {
     setRestartingBackend(true);
@@ -379,6 +426,31 @@ export default function SettingsPage() {
   return (
     <div className="min-h-screen bg-gray-100">
       <Toast toasts={toasts} removeToast={removeToast} />
+
+      {/* 退出程序按钮 */}
+      <div className="bg-red-50 border-b border-red-100">
+        <div className="max-w-7xl mx-auto px-4 py-3 sm:px-6 lg:px-8 flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+            </svg>
+            <span className="text-sm text-red-800 font-medium">退出后将完全关闭程序，需通过托盘图标重新打开</span>
+          </div>
+          <button
+            onClick={() => {
+              if (window.electronAPI?.quitApp) {
+                window.electronAPI.quitApp();
+              }
+            }}
+            className="px-5 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition-all duration-200 flex items-center space-x-2"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+            </svg>
+            <span>退出程序</span>
+          </button>
+        </div>
+      </div>
 
       {/* Header */}
       <header className="bg-white shadow">
@@ -597,6 +669,86 @@ export default function SettingsPage() {
                       </>
                     )}
                   </button>
+                </div>
+
+                {/* 虹膜设备锁定 */}
+                <div className="py-4 border-b">
+                  <label className="block text-sm font-medium text-gray-700">
+                    虹膜设备锁定
+                  </label>
+                  <p className="mt-1 text-sm text-gray-500 mb-4">
+                    手动锁定虹膜设备，为后续上传做准备
+                  </p>
+                  <button
+                    onClick={handleLockIris}
+                    disabled={lockingIris}
+                    className="px-6 py-3 bg-gray-600 text-white rounded-lg font-medium hover:bg-gray-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all duration-200 flex items-center space-x-2"
+                  >
+                    {lockingIris ? (
+                      <>
+                        <svg className="animate-spin -ml-1 mr-2 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <span>锁定中...</span>
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                        </svg>
+                        <span>锁定虹膜设备</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {/* 虹膜测试上传 */}
+                <div className="py-4 border-b">
+                  <label className="block text-sm font-medium text-gray-700">
+                    虹膜测试上传
+                  </label>
+                  <p className="mt-1 text-sm text-gray-500 mb-4">
+                    使用 data/iris_last_request.json 中的 BMP 数据，按 锁定→300ms→上传→解锁 流程发送到虹膜设备。使用独立 TCP 连接（与 Postman 效果一致）。需先点击"模拟添加凭证"生成数据文件
+                  </p>
+                  <button
+                    onClick={handleTestIrisUpload}
+                    disabled={testingIrisUpload}
+                    className="px-6 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all duration-200 flex items-center space-x-2"
+                  >
+                    {testingIrisUpload ? (
+                      <>
+                        <svg className="animate-spin -ml-1 mr-2 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <span>上传中...</span>
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m0 0l4 4" />
+                        </svg>
+                        <span>虹膜测试上传</span>
+                      </>
+                    )}
+                  </button>
+                  {irisTestResult && (
+                    <div className={`mt-4 rounded-lg text-sm ${irisTestResult.success ? 'bg-green-50 border border-green-200 text-green-800' : 'bg-red-50 border border-red-200 text-red-800'}`}>
+                      <div className="p-3">
+                        <div className="font-bold">{irisTestResult.success ? '✅ 上传成功' : '❌ 上传失败'}</div>
+                        <div>{irisTestResult.message}</div>
+                      </div>
+                      {irisTestResult.logs && irisTestResult.logs.length > 0 && (
+                        <div className="border-t border-green-200 bg-white rounded-b-lg">
+                          <div className="px-3 py-2 text-xs font-bold text-gray-500">执行日志：</div>
+                          <pre className="px-3 pb-3 text-xs bg-gray-900 text-green-300 rounded-b-lg overflow-x-auto max-h-60 whitespace-pre-wrap">
+                            {irisTestResult.logs.join('\n')}
+                          </pre>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* 重启后台服务 */}

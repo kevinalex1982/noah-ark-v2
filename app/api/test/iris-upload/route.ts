@@ -18,6 +18,7 @@ import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { getDatabase, initDatabase } from '@/lib/database';
 import { SAMPLE_FACE_IMAGE_BASE64 } from '@/lib/sample-face-image';
+import { SAMPLE_FACE_IMAGE_BASE64 } from '@/lib/sample-face-image';
 
 // 东八区时间
 function bjt(): string {

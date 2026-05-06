@@ -31,6 +31,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 窗口关闭
   close: () => ipcRenderer.invoke('window-close'),
 
+  // 退出程序
+  quitApp: () => ipcRenderer.invoke('quit-app'),
+
   // 重新加载页面
   reload: () => ipcRenderer.invoke('window-reload'),
 
@@ -53,6 +56,7 @@ export interface ElectronAPI {
   minimize: () => Promise<void>;
   maximize: () => Promise<void>;
   close: () => Promise<void>;
+  quitApp: () => Promise<void>;
   reload: () => Promise<void>;
   restartApp: () => Promise<void>;
   restartBackend: () => Promise<{ success: boolean; message?: string }>;

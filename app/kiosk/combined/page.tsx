@@ -35,6 +35,8 @@ function CombinedContent() {
   // 生物识别状态
   const [scanStatus, setScanStatus] = useState<'waiting' | 'scanning' | 'success' | 'error' | 'mismatch'>('waiting');
   const [mismatchHint, setMismatchHint] = useState(false);
+  // 追踪最后一步是否已完成（用于隐藏按钮，防止用户在跳转前点击）
+  const [finalSuccess, setFinalSuccess] = useState(false);
 
   const pollingRef = useRef(true);
   // 用 ref 追踪已完成的步骤，避免闭包读取旧值
@@ -591,6 +593,7 @@ function CombinedContent() {
           }, 0);
         } else {
           console.log('[组合认证] 密码是最后一步，跳转成功');
+          setFinalSuccess(true);
           goToSuccess();
         }
       } else {
@@ -639,6 +642,7 @@ function CombinedContent() {
 
     if (isLastStep) {
       console.log('[组合认证] 是最后一步，跳转成功');
+      setFinalSuccess(true);
       currentGoToSuccess?.();
     } else {
       const nextStep = currentSteps[currentIndex + 1];
@@ -655,6 +659,7 @@ function CombinedContent() {
   }, []); // 空依赖，内部通过 ref 读取最新值
 
   const handleBiometricRetry = useCallback(async () => {
+    setFinalSuccess(false);
     stopPolling();
     setMismatchHint(false);
     setScanStatus('scanning');
@@ -677,6 +682,7 @@ function CombinedContent() {
 
   const handleBack = useCallback(() => {
     stopPolling();
+    setFinalSuccess(false);
     if (!currentStep) return;
     const currentIndex = steps.indexOf(currentStep);
     if (currentIndex > 0) {
@@ -1012,36 +1018,38 @@ function CombinedContent() {
               )}
             </div>
 
-            {/* 按钮 */}
-            <div className="flex space-x-4">
-              <button
-                onClick={handleBack}
-                className="flex-1 px-4 py-4 bg-gray-100 text-gray-900 rounded-xl font-bold text-base
-                         hover:bg-gray-200 transition-all active:scale-95 transform"
-              >
-                {currentStep && steps.indexOf(currentStep) === 0 ? '返回' : '上一步'}
-              </button>
-              {currentStep === 'password' && (
+            {/* 按钮 — 最后一步成功后隐藏，防止用户点击影响跳转 */}
+            {!finalSuccess && (
+              <div className="flex space-x-4">
                 <button
-                  onClick={handlePasswordSubmit}
-                  disabled={password.length < 4 || scanStatus === 'scanning'}
-                  className="flex-1 px-4 py-4 bg-gray-900 text-white rounded-xl font-bold text-base
-                           hover:bg-black transition-all disabled:opacity-50 disabled:cursor-not-allowed
-                           active:scale-95 transform"
+                  onClick={handleBack}
+                  className="flex-1 px-4 py-4 bg-gray-100 text-gray-900 rounded-xl font-bold text-base
+                           hover:bg-gray-200 transition-all active:scale-95 transform"
                 >
-                  {scanStatus === 'scanning' ? '验证中...' : '下一步'}
+                  {currentStep && steps.indexOf(currentStep) === 0 ? '返回' : '上一步'}
                 </button>
-              )}
-              {(currentStep === 'iris' || currentStep === 'palm') && scanStatus === 'error' && (
-                <button
-                  onClick={handleBiometricRetry}
-                  className="flex-1 px-4 py-4 bg-gray-900 text-white rounded-xl font-bold text-base
-                           hover:bg-black transition-all active:scale-95 transform"
-                >
-                  重试
-                </button>
-              )}
-            </div>
+                {currentStep === 'password' && (
+                  <button
+                    onClick={handlePasswordSubmit}
+                    disabled={password.length < 4 || scanStatus === 'scanning'}
+                    className="flex-1 px-4 py-4 bg-gray-900 text-white rounded-xl font-bold text-base
+                             hover:bg-black transition-all disabled:opacity-50 disabled:cursor-not-allowed
+                             active:scale-95 transform"
+                  >
+                    {scanStatus === 'scanning' ? '验证中...' : '下一步'}
+                  </button>
+                )}
+                {(currentStep === 'iris' || currentStep === 'palm') && scanStatus === 'error' && (
+                  <button
+                    onClick={handleBiometricRetry}
+                    className="flex-1 px-4 py-4 bg-gray-900 text-white rounded-xl font-bold text-base
+                             hover:bg-black transition-all active:scale-95 transform"
+                  >
+                    重试
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </main>

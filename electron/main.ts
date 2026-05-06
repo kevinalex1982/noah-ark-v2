@@ -470,15 +470,16 @@ function createWindow(): void {
     width: CONFIG.width,
     height: CONFIG.height,
     fullscreenable: true,
-    kiosk: false,
+    kiosk: true,
     title: CONFIG.title,
     icon: path.join(__dirname, '../app/favicon.ico'),
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js'),
+      devTools: false,
     },
-    frame: true,
+    frame: false,
     autoHideMenuBar: true,
     backgroundColor: '#f8fafc',
     show: false,
@@ -498,6 +499,22 @@ function createWindow(): void {
       shell.openExternal(url);
     }
     return { action: 'deny' };
+  });
+
+  // 拦截系统快捷键，防止用户误操作退出 Kiosk 模式
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    const { key, control, alt, shift, meta } = input;
+    // 屏蔽: Alt+F4, Ctrl+W, Ctrl+Shift+I, Ctrl+Shift+J, Ctrl+U, F11, F12
+    const blocked = (alt && key === 'F4') ||                    // Alt+F4 关闭窗口
+                    (alt && key === 'Tab') ||                    // Alt+Tab 切换窗口
+                    (control && key === 'w') ||                  // Ctrl+W 关闭标签页
+                    (control && shift && (key === 'I' || key === 'i' || key === 'J' || key === 'j' || key === 'C' || key === 'c')) || // DevTools
+                    (control && key === 'u') ||                  // Ctrl+U 查看源码
+                    (key === 'F11') ||                           // F11 全屏切换
+                    (key === 'F12');                             // F12 DevTools
+    if (blocked) {
+      event.preventDefault();
+    }
   });
 
   mainWindow.on('closed', () => {
@@ -901,6 +918,10 @@ ipcMain.handle('window-maximize', () => {
 
 ipcMain.handle('window-close', () => {
   mainWindow?.close();
+});
+
+ipcMain.handle('quit-app', () => {
+  app.quit();
 });
 
 ipcMain.handle('window-reload', () => {

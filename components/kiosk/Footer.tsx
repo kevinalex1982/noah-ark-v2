@@ -179,48 +179,72 @@ export default function Footer() {
           <div className="bg-white rounded-2xl shadow-2xl p-6 w-80" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-black text-gray-900 text-center mb-4">管理员验证</h3>
 
-            {/* 密码显示区域 */}
-            <div className={`w-full px-4 py-3 border-2 rounded-xl text-lg text-center tracking-widest mb-2 min-h-[52px] flex items-center justify-center
-              ${adminPassword.length > 0 && adminPassword.length < 5 ? 'border-yellow-400 bg-yellow-50' : 'border-gray-200 bg-gray-50'}`}>
-              <span className="text-gray-900 text-2xl tracking-[0.5em]">
-                {'●'.repeat(adminPassword.length)}
-              </span>
-              {adminPassword.length === 0 && (
-                <span className="text-gray-400 text-base">请输入密码</span>
+            {/* 密码输入框 */}
+            <div className="mb-3">
+              <input
+                type="password"
+                value={adminPassword}
+                readOnly
+                className={`w-full px-4 py-3 border-2 rounded-xl text-lg text-center tracking-widest
+                           focus:outline-none transition-colors
+                           ${passwordError ? 'border-red-500' : 'border-gray-200 focus:border-gray-900'}`}
+                placeholder="请输入密码"
+              />
+              <p className="text-center text-sm text-gray-500 mt-1">
+                已输入 {adminPassword.length} 位 {adminPassword.length >= 5 ? '✓' : '(至少 5 位)'}
+              </p>
+              {passwordError && (
+                <p className="text-center text-sm text-red-500 mt-1 font-medium">
+                  ⚠️ {passwordError}
+                </p>
               )}
             </div>
-            {adminPassword.length > 0 && adminPassword.length < 5 && (
-              <p className="text-sm text-yellow-600 text-center mb-2">密码不可少于5位（已输入 {adminPassword.length}/5 位）</p>
-            )}
-            {passwordError && (
-              <p className="text-sm text-red-600 text-center mb-2">{passwordError}</p>
-            )}
 
             {/* 数字键盘 */}
             <div className="grid grid-cols-3 gap-2 mb-3">
-              {['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', '⌫'].map((key, i) => (
-                key === '' ? (
-                  <div key={i} />
-                ) : (
-                  <button
-                    key={i}
-                    onClick={() => {
-                      if (key === '⌫') {
-                        setAdminPassword(prev => prev.slice(0, -1));
-                      } else {
-                        setAdminPassword(prev => prev + key);
-                      }
-                      setPasswordError('');
-                    }}
-                    className={`h-12 rounded-xl font-bold text-xl transition-all active:scale-95
-                      ${key === '⌫'
-                        ? 'bg-red-100 text-red-600 hover:bg-red-200'
-                        : 'bg-gray-100 text-gray-900 hover:bg-gray-200'}`}
-                  >
-                    {key}
-                  </button>
-                )
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) => (
+                <button
+                  key={num}
+                  onClick={() => {
+                    setAdminPassword(prev => prev + num);
+                    setPasswordError('');
+                  }}
+                  className="py-3 text-xl font-bold border-2 border-gray-200 rounded-xl
+                           hover:bg-gray-50 transition-all active:scale-95 transform text-gray-900"
+                >
+                  {num}
+                </button>
               ))}
+              <button
+                onClick={() => {
+                  setAdminPassword('');
+                  setPasswordError('');
+                }}
+                className="py-3 text-sm font-bold border-2 border-gray-200 rounded-xl
+                         hover:bg-gray-50 transition-all active:scale-95 transform text-red-600"
+              >
+                清空
+              </button>
+              <button
+                onClick={() => {
+                  setAdminPassword(prev => prev + '0');
+                  setPasswordError('');
+                }}
+                className="py-3 text-xl font-bold border-2 border-gray-200 rounded-xl
+                         hover:bg-gray-50 transition-all active:scale-95 transform text-gray-900"
+              >
+                0
+              </button>
+              <button
+                onClick={() => {
+                  setAdminPassword(prev => prev.slice(0, -1));
+                  setPasswordError('');
+                }}
+                className="py-3 text-lg font-bold border-2 border-gray-200 rounded-xl
+                         hover:bg-gray-50 transition-all active:scale-95 transform text-gray-900"
+              >
+                ⬅️
+              </button>
             </div>
 
             {/* 取消 / 确认 */}

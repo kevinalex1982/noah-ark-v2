@@ -1,6 +1,6 @@
 {
   "name": "noah-ark-electron",
-  "version": "1.0.37",
+  "version": "1.0.38",
   "description": "诺亚宝库 - Electron 桌面客户端",
   "main": "dist/main.js",
   "scripts": {
@@ -8,7 +8,7 @@
     "start": "electron .",
     "dev": "tsc && electron .",
     "pack": "npm run build && electron-builder --dir",
-    "dist": "node -e \"const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));const v=p.version.split('.');v[2]=String(Number(v[2])+1);p.version=v.join('.');fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\\n');console.log('Version bumped to',p.version);\" && npm run build && electron-builder"
+    "dist": "npm run build && electron-builder"
   },
   "build": {
     "appId": "com.noah-ark.app",

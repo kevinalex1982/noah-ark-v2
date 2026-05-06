@@ -16,6 +16,8 @@ import {
   type SyncStatus,
   type DeviceConfig,
 } from './sync-queue';
+import { existsSync, mkdirSync, writeFileSync } from 'fs';
+import { join } from 'path';
 
 // 东八区时间格式化
 function bjt(): string {
@@ -567,6 +569,17 @@ export async function syncToIrisDevice(
       purviewStartTime: 0.0,
       singleIrisAllowed: 0,
     };
+
+    // 保存最后一次虹膜下发 payload 到文件，方便 Postman 测试
+    try {
+      const dataDir = process.env.DATA_DIR || join(process.cwd(), 'data');
+      if (!existsSync(dataDir)) mkdirSync(dataDir, { recursive: true });
+      const savePath = join(dataDir, 'iris_last_request.json');
+      writeFileSync(savePath, JSON.stringify(requestData, null, 2), 'utf-8');
+      console.log(`[${beijingTime()}] [设备] 虹膜 payload 已保存到 ${savePath} (leftIrisImage base64 len=${leftIrisBmp.length}, rightIrisImage base64 len=${rightIrisBmp.length})`);
+    } catch (e) {
+      console.log(`[${beijingTime()}] [设备] 保存虹膜 payload 失败: ${e}`);
+    }
 
     console.log(`[${beijingTime()}] [设备] 虹膜下发 ${payload.staffNum} ${payload.memberName}`);
 

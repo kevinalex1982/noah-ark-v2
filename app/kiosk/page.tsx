@@ -11,6 +11,7 @@ export default function KioskPage() {
   const [identityId, setIdentityId] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [keyboardMode, setKeyboardMode] = useState<'number' | 'letter'>('number');
   const resetCountdown = () => {};
 
   const handleNext = async () => {
@@ -47,17 +48,20 @@ export default function KioskPage() {
     setError('');
   };
 
-  const handleNumberClick = (num: string) => {
-    resetCountdown();
-    if (identityId.length < 32) {
-      setIdentityId(identityId + num);
-    }
-  };
-
   const handleBackspace = () => {
     resetCountdown();
     setIdentityId(identityId.slice(0, -1));
   };
+
+  const handleKeyClick = (key: string) => {
+    resetCountdown();
+    if (identityId.length < 32) {
+      setIdentityId(identityId + key);
+    }
+  };
+
+  // 字母表（仅大写）
+  const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 
   return (
     <main className="min-h-screen gradient-subtle flex flex-col">
@@ -120,45 +124,100 @@ export default function KioskPage() {
                   ⚠️ {error}
                 </p>
               )}
-              <p className="text-gray-500 text-sm mt-2 text-center">
-                已输入 {identityId.length} 位
+              <p className="text-gray-500 text-sm mt-1 text-center">
+                已输入 {identityId.length} / 32 位
               </p>
             </div>
 
-            {/* 软键盘 */}
-            <div className="grid grid-cols-3 gap-3 mb-6">
-              {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((num) => (
-                <button
-                  key={num}
-                  onClick={() => handleNumberClick(num)}
-                  className="py-4 text-xl font-bold border-2 border-gray-200 rounded-xl
-                           hover:bg-gray-50 transition-all active:scale-95 transform text-gray-900"
-                >
-                  {num}
-                </button>
-              ))}
+            {/* 键盘模式切换 Tab */}
+            <div className="flex space-x-2 mb-3">
               <button
-                onClick={handleClear}
-                className="py-4 text-sm font-bold border-2 border-gray-200 rounded-xl
-                         hover:bg-gray-50 transition-all active:scale-95 transform text-red-600"
+                onClick={() => setKeyboardMode('number')}
+                className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all
+                  ${keyboardMode === 'number'
+                    ? 'bg-gray-900 text-white'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
               >
-                清空
+                数字
               </button>
               <button
-                onClick={() => handleNumberClick('0')}
-                className="py-4 text-xl font-bold border-2 border-gray-200 rounded-xl
-                         hover:bg-gray-50 transition-all active:scale-95 transform text-gray-900"
+                onClick={() => setKeyboardMode('letter')}
+                className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all
+                  ${keyboardMode === 'letter'
+                    ? 'bg-gray-900 text-white'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
               >
-                0
-              </button>
-              <button
-                onClick={handleBackspace}
-                className="py-4 text-lg font-bold border-2 border-gray-200 rounded-xl
-                         hover:bg-gray-50 transition-all active:scale-95 transform text-gray-900"
-              >
-                ⬅️
+                字母
               </button>
             </div>
+
+            {/* 数字键盘（3列） */}
+            {keyboardMode === 'number' && (
+              <div className="grid grid-cols-3 gap-2 mb-6">
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) => (
+                  <button
+                    key={num}
+                    onClick={() => handleKeyClick(num.toString())}
+                    className="py-3 text-xl font-bold border-2 border-gray-200 rounded-xl
+                             hover:bg-gray-50 transition-all active:scale-95 transform text-gray-900"
+                  >
+                    {num}
+                  </button>
+                ))}
+                <button
+                  onClick={handleClear}
+                  className="py-3 text-sm font-bold border-2 border-gray-200 rounded-xl
+                           hover:bg-gray-50 transition-all active:scale-95 transform text-red-600"
+                >
+                  清空
+                </button>
+                <button
+                  onClick={() => handleKeyClick('0')}
+                  className="py-3 text-xl font-bold border-2 border-gray-200 rounded-xl
+                           hover:bg-gray-50 transition-all active:scale-95 transform text-gray-900"
+                >
+                  0
+                </button>
+                <button
+                  onClick={handleBackspace}
+                  className="py-3 text-lg font-bold border-2 border-gray-200 rounded-xl
+                           hover:bg-gray-50 transition-all active:scale-95 transform text-gray-900"
+                >
+                  ⬅️
+                </button>
+              </div>
+            )}
+
+            {/* 字母键盘（4列，按钮缩小） */}
+            {keyboardMode === 'letter' && (
+              <div className="grid grid-cols-4 gap-1.5 mb-6">
+                {LETTERS.map((letter) => (
+                  <button
+                    key={letter}
+                    onClick={() => handleKeyClick(letter)}
+                    className="py-2.5 text-sm font-bold border-2 border-gray-200 rounded-lg
+                             hover:bg-gray-50 transition-all active:scale-95 transform text-gray-900"
+                  >
+                    {letter}
+                  </button>
+                ))}
+                {/* 底行：切换到数字 + ⌫ */}
+                <button
+                  onClick={() => setKeyboardMode('number')}
+                  className="col-span-3 py-2.5 text-xs font-bold border-2 border-gray-300 rounded-lg
+                           hover:bg-gray-100 transition-all active:scale-95 transform text-gray-600"
+                >
+                  切换到数字
+                </button>
+                <button
+                  onClick={handleBackspace}
+                  className="py-2.5 text-sm font-bold border-2 border-gray-200 rounded-lg
+                           hover:bg-gray-50 transition-all active:scale-95 transform text-gray-900"
+                >
+                  ⬅️
+                </button>
+              </div>
+            )}
 
             {/* 按钮 */}
             <div className="flex space-x-4">
