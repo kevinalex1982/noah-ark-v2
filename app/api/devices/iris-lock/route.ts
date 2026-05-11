@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { initDatabase } from '@/lib/database';
 import { getDeviceConfigs } from '@/lib/sync-queue';
+import * as http from 'http';
 
 export async function POST(request: NextRequest) {
   try {
@@ -36,22 +37,31 @@ export async function POST(request: NextRequest) {
     const endpointUrl = new URL(device.endpoint);
     const deviceIp = endpointUrl.hostname;
 
-    const url = `${device.endpoint}/memberSaveState`;
-    const requestData = {
-      ip: deviceIp,
-      state: state,
-    };
-
     console.log(`[IrisLock] ${state === 1 ? '锁定' : '解锁'}虹膜设备, ip: ${deviceIp}`);
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(requestData),
-      signal: AbortSignal.timeout(30000),
+    const responseData: any = await new Promise((resolve, reject) => {
+      const url = new URL(device.endpoint + '/memberSaveState');
+      const postData = JSON.stringify({ ip: deviceIp, state });
+      const req = http.request({
+        hostname: url.hostname,
+        port: url.port || 80,
+        path: url.pathname,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(postData) },
+        agent: false,
+        timeout: 30000,
+      }, (res) => {
+        let data = '';
+        res.on('data', chunk => data += chunk);
+        res.on('end', () => {
+          try { resolve(JSON.parse(data)); } catch { resolve({ errorCode: -1, errorInfo: '解析失败: ' + data }); }
+        });
+      });
+      req.on('error', reject);
+      req.on('timeout', () => { req.destroy(); reject(new Error('请求超时')); });
+      req.write(postData);
+      req.end();
     });
-
-    const responseData = await response.json();
     console.log(`[IrisLock] 响应: ${JSON.stringify(responseData)}`);
 
     if (responseData.errorCode === 0 || responseData.errorCode === '0') {

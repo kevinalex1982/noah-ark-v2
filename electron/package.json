@@ -1,6 +1,6 @@
 {
   "name": "noah-ark-electron",
-  "version": "1.0.38",
+  "version": "1.0.41",
   "description": "诺亚宝库 - Electron 桌面客户端",
   "main": "dist/main.js",
   "scripts": {

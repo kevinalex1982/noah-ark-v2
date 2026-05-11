@@ -65,7 +65,7 @@ export async function POST(request: Request) {
       }
     }
 
-    console.log(`[IrisVerify] 比对结果: ${matched ? '匹配' : '不匹配'}`);
+    console.log(`[IrisVerify] 比对结果: ${matched ? '✅ 匹配, personName=' + matchedPersonName + ', credentialId=' + matchedCredentialId : '❌ 不匹配'}`);
 
     return NextResponse.json({
       success: true,

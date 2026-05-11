@@ -53,6 +53,18 @@ export async function GET(request: Request) {
     // 实际凭证类型列表
     const actualCredentialTypes = result.rows.map(row => row.type as number);
 
+    // 虹膜凭证的 credentialId（type=7），用于前端预加载虹膜数据
+    const irisResult = await db.execute({
+      sql: 'SELECT credential_id, iris_data_path FROM credentials WHERE person_id = ? AND type = 7 AND enable = 1 LIMIT 1',
+      args: [queryId]
+    });
+    const irisCredentialId = irisResult.rows.length > 0
+      ? (irisResult.rows[0].credential_id as number)
+      : null;
+    const irisDataPath = irisResult.rows.length > 0
+      ? (irisResult.rows[0].iris_data_path as string | null)
+      : null;
+
     // authTypeList 配置
     const authTypeListConfig = userData.authTypeList;
 
@@ -90,7 +102,9 @@ export async function GET(request: Request) {
         actualCredentialTypes: actualCredentialTypes,  // 实际凭证类型
         hasDuressCode: hasDuressCode,        // 是否有胁迫码
         authModel: userData.authModel,       // 认证模型：1=单独，2=组合
-        credentialId: userData.credentialId, // 凭证ID
+        credentialId: userData.credentialId, // 凭证ID（第一条）
+        irisCredentialId,                    // 虹膜凭证ID（type=7）
+        irisDataPath,                        // 虹膜数据文件路径
       },
     });
 

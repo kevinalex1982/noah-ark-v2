@@ -13,6 +13,8 @@ interface UserInfo {
   personName: string;
   boxList: string;
   credentialId?: number;
+  irisCredentialId?: number | null;
+  irisDataPath?: string | null;
 }
 
 function CombinedContent() {
@@ -108,6 +110,8 @@ function CombinedContent() {
             personName: data.data.personName || '',
             boxList: data.data.boxList || '',
             credentialId: data.data.credentialId || 0,
+            irisCredentialId: data.data.irisCredentialId || null,
+            irisDataPath: data.data.irisDataPath || null,
           };
           setUserInfo(newUserInfo);
           userInfoRef.current = newUserInfo;
@@ -282,6 +286,15 @@ function CombinedContent() {
               setScanStatus('success');
               setMismatchHint(false);
               stopPolling();
+              // 识别成功后清理设备数据
+              const credentialId = userInfoRef.current?.irisCredentialId;
+              if (credentialId) {
+                fetch('/api/device/iris/cleanup', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ credentialId }),
+                }).catch(() => {});
+              }
               handleBiometricComplete('iris');
               return;
             } else if (verifyResult.success && !verifyResult.match) {
@@ -302,6 +315,15 @@ function CombinedContent() {
     }
 
     if (pollingRef.current) {
+      console.log('[组合虹膜] 轮询超时，清理设备并 setScanStatus(error)');
+      const credentialId = userInfoRef.current?.irisCredentialId;
+      if (credentialId) {
+        fetch('/api/device/iris/cleanup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ credentialId }),
+        }).catch(() => {});
+      }
       setScanStatus('error');
     }
   }, [identityId, stopPolling]);
@@ -424,15 +446,47 @@ function CombinedContent() {
     if (!currentStep) return;
     console.log('[组合认证·polling useEffect] currentStep:', currentStep, 'completedSteps:', completedSteps, 'scanStatus:', scanStatus);
     if (currentStep === 'iris' && !completedSteps.includes('iris')) {
-      console.log('[组合认证·polling useEffect] 启动虹膜轮询');
-      startIrisPolling();
+      console.log('[组合认证·polling useEffect] 预加载虹膜数据...');
+      const credentialId = userInfo?.irisCredentialId;
+      const dataPath = userInfo?.irisDataPath;
+      if (!credentialId) {
+        console.error('[组合认证·polling useEffect] 缺少 irisCredentialId，无法预加载');
+        setScanStatus('error');
+        return;
+      }
+      if (!dataPath) {
+        console.error('[组合认证·polling useEffect] 虹膜凭证缺少 iris_data_path，凭证可能是旧格式（未加密存储），请重新添加');
+        setScanStatus('error');
+        return;
+      }
+      console.log('[组合认证·polling useEffect] irisCredentialId:', credentialId, 'irisDataPath:', dataPath);
+      // 先调用 preload API 上传虹膜数据到设备
+      fetch('/api/device/iris/preload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credentialId }),
+      })
+        .then(r => r.json())
+        .then(data => {
+          if (data.success) {
+            console.log('[组合认证·polling useEffect] 预加载成功，启动虹膜轮询');
+            startIrisPolling();
+          } else {
+            console.error('[组合认证·polling useEffect] 预加载失败:', data.error);
+            setScanStatus('error');
+          }
+        })
+        .catch(err => {
+          console.error('[组合认证·polling useEffect] 预加载异常:', err);
+          setScanStatus('error');
+        });
       return () => { console.log('[组合认证·polling useEffect] 清理虹膜轮询'); stopPolling(); };
     } else if (currentStep === 'palm' && !completedSteps.includes('palm')) {
       console.log('[组合认证·polling useEffect] 启动掌纹轮询');
       startPalmPolling();
       return () => { console.log('[组合认证·polling useEffect] 清理掌纹轮询'); stopPolling(); };
     }
-  }, [currentStep, completedSteps, startIrisPolling, startPalmPolling, stopPolling]);
+  }, [currentStep, completedSteps, startIrisPolling, startPalmPolling, stopPolling, userInfo]);
 
   const getStepName = (step: AuthStep) => {
     switch (step) {
@@ -662,7 +716,6 @@ function CombinedContent() {
     setFinalSuccess(false);
     stopPolling();
     setMismatchHint(false);
-    setScanStatus('scanning');
     // 重置倒计时
     try {
       const response = await fetch('/api/auth/settings');
@@ -674,8 +727,34 @@ function CombinedContent() {
       console.log('[组合认证] 获取设置失败，使用默认值:', err);
     }
     if (currentStep === 'iris') {
-      startIrisPolling();
+      // 虹膜重试需要先 preload 再轮询（设备已被 cleanup 锁定且数据已删除）
+      const credentialId = userInfoRef.current?.irisCredentialId;
+      const dataPath = userInfoRef.current?.irisDataPath;
+      if (!credentialId || !dataPath) {
+        console.error('[组合认证·retry] 缺少虹膜凭证信息，无法重试');
+        setScanStatus('error');
+        return;
+      }
+      setScanStatus('scanning');
+      try {
+        const preloadResp = await fetch('/api/device/iris/preload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ credentialId }),
+        });
+        const preloadData = await preloadResp.json();
+        if (preloadData.success) {
+          startIrisPolling();
+        } else {
+          console.error('[组合认证·retry] 预加载失败:', preloadData.error);
+          setScanStatus('error');
+        }
+      } catch (err) {
+        console.error('[组合认证·retry] 预加载异常:', err);
+        setScanStatus('error');
+      }
     } else if (currentStep === 'palm') {
+      setScanStatus('scanning');
       startPalmPolling();
     }
   }, [currentStep, stopPolling, startIrisPolling, startPalmPolling]);
@@ -693,12 +772,38 @@ function CombinedContent() {
       setPasswordError('');
       setScanStatus('waiting');
     } else {
+      // 返回首页时兜底清理虹膜设备数据
+      const credentialId = userInfoRef.current?.irisCredentialId;
+      if (credentialId) {
+        fetch('/api/device/iris/cleanup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ credentialId }),
+        }).catch(() => {});
+      }
       router.push('/kiosk');
     }
   }, [currentStep, steps, stopPolling, router, identityId]);
 
   // 渲染日志：每次render时输出关键状态
   console.log('[组合认证·render] currentStep:', currentStep, 'scanStatus:', scanStatus, 'completedSteps:', JSON.stringify(completedSteps), 'steps:', JSON.stringify(steps), 'countdown:', countdown);
+
+  // 倒计时超时：清理虹膜设备数据
+  const handleCountdownTimeout = useCallback(() => {
+    stopPolling();
+    // 如果是虹膜步骤，清理设备数据
+    if (currentStep === 'iris') {
+      const credentialId = userInfoRef.current?.irisCredentialId;
+      if (credentialId) {
+        fetch('/api/device/iris/cleanup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ credentialId }),
+        }).catch(() => {});
+      }
+    }
+    setScanStatus('error');
+  }, [currentStep, stopPolling]);
 
   // 倒计时
   useEffect(() => {
@@ -707,8 +812,7 @@ function CombinedContent() {
     const timer = setInterval(() => {
       setCountdown(prev => {
         if (prev <= 1) {
-          stopPolling();
-          setScanStatus('error');
+          handleCountdownTimeout();
           return 0;
         }
         return prev - 1;
@@ -716,7 +820,7 @@ function CombinedContent() {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [currentStep, scanStatus, stopPolling]);
+  }, [currentStep, scanStatus, stopPolling, handleCountdownTimeout]);
 
   if (loading) {
     return (

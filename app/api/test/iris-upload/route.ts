@@ -18,23 +18,39 @@ import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { getDatabase, initDatabase } from '@/lib/database';
 import { SAMPLE_FACE_IMAGE_BASE64 } from '@/lib/sample-face-image';
-import { SAMPLE_FACE_IMAGE_BASE64 } from '@/lib/sample-face-image';
+import * as http from 'http';
 
 // 东八区时间
 function bjt(): string {
   return new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
 }
 
-// 调用虹膜设备接口（使用 fetch，与 lib/device-sync.ts 一致）
-async function callIrisApi(endpoint: string, path: string, body?: object): Promise<any> {
-  const url = `${endpoint}${path}`;
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: body ? JSON.stringify(body) : undefined,
-    signal: AbortSignal.timeout(15000),
+// 调用虹膜设备接口（使用 http.request，避免 fetch keep-alive 问题）
+function callIrisApi(endpoint: string, path: string, body?: object, timeout: number = 15000): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const url = new URL(endpoint + path);
+    const postData = body ? JSON.stringify(body) : '';
+    const options: http.RequestOptions = {
+      hostname: url.hostname,
+      port: url.port || 80,
+      path: url.pathname,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(postData) },
+      agent: false,
+      timeout,
+    };
+    const req = http.request(options, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try { resolve(JSON.parse(data)); } catch { reject(new Error(`解析失败: ${data}`)); }
+      });
+    });
+    req.on('error', reject);
+    req.on('timeout', () => { req.destroy(); reject(new Error('请求超时')); });
+    if (postData) req.write(postData);
+    req.end();
   });
-  return response.json();
 }
 
 export async function POST(request: NextRequest) {

@@ -24,6 +24,7 @@ export interface Credential {
   auth_type_list: string | null;
   box_list: string | null;
   custom_id: string | null;  // 自定义ID（掌纹设备的userId等）
+  iris_data_path: string | null;  // 虹膜数据加密文件路径（按需下发）
   enable: number;
   created_at: string;
   updated_at: string;
@@ -49,6 +50,7 @@ export async function upsertCredential(data: {
   auth_type_list?: string;
   box_list?: string;
   custom_id?: string;  // 自定义ID（掌纹设备的userId等）
+  iris_data_path?: string;  // 虹膜数据加密文件路径
   enable?: number;     // 启用状态
 }): Promise<Credential> {
   const db = getDatabase();
@@ -78,6 +80,7 @@ export async function upsertCredential(data: {
         auth_type_list = ?,
         box_list = ?,
         custom_id = ?,
+        iris_data_path = ?,
         enable = ?,
         updated_at = ?
       WHERE credential_id = ?`,
@@ -96,6 +99,7 @@ export async function upsertCredential(data: {
         data.auth_type_list || null,
         data.box_list || null,
         data.custom_id || null,
+        data.iris_data_path || null,
         data.enable ?? 1,
         now,
         data.credential_id
@@ -109,9 +113,9 @@ export async function upsertCredential(data: {
       sql: `INSERT INTO credentials (
         person_id, person_name, person_type, credential_id, type,
         content, iris_left_image, iris_right_image, palm_feature, show_info, tags,
-        auth_model, auth_type_list, box_list, custom_id, enable,
+        auth_model, auth_type_list, box_list, custom_id, iris_data_path, enable,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       args: [
         data.person_id,
         data.person_name,
@@ -128,6 +132,7 @@ export async function upsertCredential(data: {
         data.auth_type_list || null,
         data.box_list || null,
         data.custom_id || null,
+        data.iris_data_path || null,
         data.enable ?? 1,
         now,
         now
@@ -143,7 +148,7 @@ export async function upsertCredential(data: {
  * 这些大字段只用于写入，读取场景（存在性检查、类型查询、验证比对）不需要加载
  * verify-password 需要 content 字段比对密码，需传 includeContent: true
  */
-const LIGHT_COLUMNS = 'id, person_id, person_name, person_type, credential_id, type, show_info, tags, auth_model, auth_type_list, box_list, custom_id, enable, created_at, updated_at';
+const LIGHT_COLUMNS = 'id, person_id, person_name, person_type, credential_id, type, show_info, tags, auth_model, auth_type_list, box_list, custom_id, iris_data_path, enable, created_at, updated_at';
 
 /**
  * 通过 credential_id 查询凭证
@@ -484,6 +489,7 @@ function rowToCredential(row: Record<string, any>): Credential {
     auth_type_list: row.auth_type_list as string | null,
     box_list: row.box_list as string | null,
     custom_id: row.custom_id as string | null,
+    iris_data_path: row.iris_data_path as string | null,
     enable: row.enable as number,
     created_at: row.created_at as string,
     updated_at: row.updated_at as string,

@@ -6,6 +6,33 @@
 
 import { NextResponse } from 'next/server';
 import { getIrisEndpoint } from '@/lib/settings';
+import * as http from 'http';
+
+function httpRequest(endpoint: string, path: string, body: object, timeout: number = 10000): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const url = new URL(endpoint + path);
+    const postData = JSON.stringify(body);
+    const req = http.request({
+      hostname: url.hostname,
+      port: url.port || 80,
+      path: url.pathname,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(postData) },
+      agent: false,
+      timeout,
+    }, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try { resolve(JSON.parse(data)); } catch { resolve({ errorCode: -1, errorInfo: '解析失败' }); }
+      });
+    });
+    req.on('error', reject);
+    req.on('timeout', () => { req.destroy(); reject(new Error('请求超时')); });
+    req.write(postData);
+    req.end();
+  });
+}
 
 export async function POST(request: Request) {
   try {
@@ -20,24 +47,13 @@ export async function POST(request: Request) {
       count: count || 10,
       endTime: endTime || Date.now(),
       key: '',
-      lastCreateTime: lastCreateTime || 0, // 关键参数：只返回比这个时间更新的记录
+      lastCreateTime: lastCreateTime || 0,
       needImages: 0,
       startTime: startTime || Date.now() - 3000,
     };
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10秒超时
-
     try {
-      const response = await fetch(`${endpoint}/records`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody),
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-      const data = await response.json();
+      const data: any = await httpRequest(endpoint, '/records', requestBody, 10000);
       console.log(`[IrisProxy] 响应: errorCode=${data.errorCode}, 记录数=${data.body?.length || 0}`);
 
       return NextResponse.json({
@@ -46,7 +62,6 @@ export async function POST(request: Request) {
       });
 
     } catch (fetchError: any) {
-      clearTimeout(timeoutId);
       console.error(`[IrisProxy] 请求失败:`, fetchError.message);
       return NextResponse.json({
         success: false,

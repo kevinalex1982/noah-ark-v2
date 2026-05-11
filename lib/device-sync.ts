@@ -39,6 +39,57 @@ const IRIS_DEVICE_CONFIG = {
 const IRIS_MEMBER_SAVE_TIMEOUT = 20000; // 20 秒
 
 /**
+ * 用 Node.js http.request 发送请求，每条请求使用独立 TCP 连接。
+ * 虹膜设备不支持 keep-alive 连接复用，必须用独立连接。
+ */
+function httpRequest(
+  endpoint: string,
+  path: string,
+  body?: object,
+  timeout: number = 15000
+): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const url = new URL(endpoint + path);
+    const postData = body ? JSON.stringify(body) : '';
+
+    const options: http.RequestOptions = {
+      hostname: url.hostname,
+      port: url.port || 80,
+      path: url.pathname,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(postData),
+        'Connection': 'close',  // 明确告诉设备请求完成后关闭连接
+      },
+      // 关键：禁用 keep-alive，确保每次都是全新连接
+      agent: false,
+    };
+
+    const req = http.request(options, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => {
+        try {
+          resolve(JSON.parse(data));
+        } catch {
+          reject(new Error(`解析失败: ${data}`));
+        }
+      });
+    });
+
+    req.on('error', reject);
+    req.setTimeout(timeout, () => {
+      req.destroy();
+      reject(new Error('请求超时'));
+    });
+
+    if (postData) req.write(postData);
+    req.end();
+  });
+}
+
+/**
  * 从 content 字段解析虹膜图片
  * 新格式：content 字段用 |==BMP-SEP==| 分隔左右眼，没有分隔符则只有左眼
  */
@@ -121,7 +172,7 @@ export async function convertToBmpBase64(base64Data: string): Promise<string> {
     // DIB 头 - BITMAPINFOHEADER (40 bytes)
     bmpBuffer.writeUInt32LE(40, offset); offset += 4;
     bmpBuffer.writeInt32LE(width, offset); offset += 4;
-    bmpBuffer.writeInt32LE(height, offset); offset += 4;
+    bmpBuffer.writeInt32LE(height, offset); offset += 4;    // 正数 = bottom-up
     bmpBuffer.writeUInt16LE(1, offset); offset += 2;       // 颜色平面数
     bmpBuffer.writeUInt16LE(8, offset); offset += 2;       // 每像素 8 位
     bmpBuffer.writeUInt32LE(0, offset); offset += 4;       // 压缩方式
@@ -139,13 +190,12 @@ export async function convertToBmpBase64(base64Data: string): Promise<string> {
       bmpBuffer[offset++] = 0; // A (保留)
     }
 
-    // 写入像素数据（BMP 从下往上存储）
+    // 写入像素数据（bottom-up：从下往上）
     for (let y = height - 1; y >= 0; y--) {
       for (let x = 0; x < width; x++) {
         const srcIdx = y * width + x;
         bmpBuffer[offset++] = data[srcIdx]; // 灰度值
       }
-      // 行填充
       for (let p = 0; p < padding; p++) {
         bmpBuffer[offset++] = 0;
       }
@@ -373,18 +423,135 @@ type IrisDeviceState = 'idle' | 'busy' | 'cooling_down';
 let irisDeviceState: IrisDeviceState = 'idle';
 const IRIS_COOLDOWN_MS = 10000; // 冷却时间 10 秒
 
+// 虹膜 personId 去重锁：防止 IAMS 快速连发同一条凭证导致重复下发
+// 10 秒后自动清除
+const irisPersonLock = new Map<string, NodeJS.Timeout>();
+
+// 虹膜设备指令间隔锁：所有发往虹膜设备的指令必须间隔 ≥1000ms
+// 给设备足够时间消化上一条指令，避免并发请求导致崩溃
+const IRIS_COMMAND_INTERVAL_MS = 1000;
+let irisLastCommandTime = 0;
+
+/**
+ * 发送虹膜设备指令前调用，确保与上一条指令间隔 ≥300ms
+ */
+async function irisCommandGuard(): Promise<void> {
+  const now = Date.now();
+  const elapsed = now - irisLastCommandTime;
+  if (elapsed < IRIS_COMMAND_INTERVAL_MS) {
+    const wait = IRIS_COMMAND_INTERVAL_MS - elapsed;
+    await new Promise(resolve => setTimeout(resolve, wait));
+  }
+  irisLastCommandTime = Date.now();
+}
+
+/**
+ * 虹膜设备锁定状态（按需下发用）
+ * 使用 globalThis 存储，避免 Next.js 模块隔离导致的状态丢失。
+ */
+function getLockStateKey(): string { return 'irisDeviceLockState'; }
+
+function readLockState(): 'locked' | 'unlocked' | 'unknown' {
+  const val = (globalThis as any)[getLockStateKey()];
+  return val || 'locked';  // 默认设备初始为锁定状态
+}
+
+function writeLockState(state: 'locked' | 'unlocked' | 'unknown'): void {
+  (globalThis as any)[getLockStateKey()] = state;
+}
+
+let irisDeviceRelockTimer: NodeJS.Timeout | null = null;
+
+/**
+ * 获取虹膜设备当前锁定状态（供轮巡器使用）
+ */
+export function getIrisDeviceLockState(): 'locked' | 'unlocked' | 'unknown' {
+  return readLockState();
+}
+
+/**
+ * 检查虹膜设备是否空闲（供轮巡器使用，避免在上传时发送锁定指令）
+ */
+export function isIrisDeviceIdle(): boolean {
+  return irisDeviceState !== 'busy';
+}
+
+/**
+ * 同步到虹膜设备（memberSave 接口）- 仅添加，不锁定/解锁
+ * 数据已经是 BMP 格式（从加密文件解密后直接使用）
+ */
+export async function uploadIrisToDevice(
+  endpoint: string,
+  payload: {
+    staffNum: string;
+    staffNumDec: string;
+    memberName: string;
+    irisLeftImage: string;
+    irisRightImage: string;
+    faceImage?: string;
+    openDoor?: boolean;
+    purview?: number;
+    singleIrisAllowed?: number;
+  },
+  skipDebugLog?: boolean
+): Promise<{ success: boolean; response?: string; error?: string }> {
+  const url = `${endpoint}/memberSave`;
+
+  // 从加密文件读取的数据可能是 JPG/PNG base64，需要转换为 BMP
+  console.log(`[DeviceSync] 转换虹膜图片为 BMP 格式（uploadIrisToDevice）...`);
+  const leftIrisBmp = payload.irisLeftImage ? await convertToBmpBase64(payload.irisLeftImage) : '';
+  const rightIrisBmp = payload.irisRightImage ? await convertToBmpBase64(payload.irisRightImage) : '';
+
+  const irisLeftPreview = leftIrisBmp?.substring(0, 10) + '...' || 'null';
+  const irisRightPreview = rightIrisBmp?.substring(0, 10) + '...' || 'null';
+
+  const requestData = {
+    staffNum: payload.staffNum,
+    cardNum: '',
+    cardType: 0,
+    faceImage: payload.faceImage || '',
+    leftIrisImage: leftIrisBmp,
+    rightIrisImage: rightIrisBmp,
+    name: payload.memberName,
+    openDoor: payload.openDoor !== false ? 1 : 0,
+    purview: payload.purview || 30,
+    purviewEndTime: 0.0,
+    purviewStartTime: 0.0,
+    singleIrisAllowed: payload.singleIrisAllowed ?? 0,
+  };
+
+  if (!skipDebugLog) {
+    console.log(`[DeviceSync] 下发虹膜特征到 ${endpoint}`);
+    console.log(`[DeviceSync] staffNum: ${payload.staffNum}, memberName: ${payload.memberName}`);
+    console.log(`[DeviceSync] irisLeft (BMP): ${irisLeftPreview} (${leftIrisBmp?.length || 0}字符)`);
+    console.log(`[DeviceSync] irisRight (BMP): ${irisRightPreview} (${rightIrisBmp?.length || 0}字符)`);
+  }
+
+  await irisCommandGuard();
+  const responseData: any = await httpRequest(endpoint, '/memberSave', requestData, IRIS_MEMBER_SAVE_TIMEOUT);
+  console.log(`[DeviceSync] 响应：${JSON.stringify(responseData)}`);
+
+  if (responseData.errorCode === 0 || responseData.errorCode === '0') {
+    return { success: true, response: JSON.stringify(responseData) };
+  } else {
+    return {
+      success: false,
+      error: `虹膜设备返回错误：errorCode=${responseData.errorCode}, errorInfo=${responseData.errorInfo || ''}`
+    };
+  }
+}
+
 /**
  * 锁定/解锁虹膜设备
- * 上传人员前需要锁定，上传后需要解锁
+ * 上传人员前需要锁定，上传后需要重新锁定
+ *
+ * errorCode=97 表示设备正在初始化（App not be inited），会自动重试。
  */
 export async function setIrisDeviceSaveState(
   endpoint: string,
   state: 0 | 1  // 0=解锁, 1=锁定
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const url = `${endpoint}/memberSaveState`;
-
-    // 从 endpoint 提取设备 IP
     const endpointUrl = new URL(endpoint);
     const deviceIp = endpointUrl.hostname;
 
@@ -395,19 +562,29 @@ export async function setIrisDeviceSaveState(
 
     console.log(`[DeviceSync] ${state === 1 ? '锁定' : '解锁'}虹膜设备, ip: ${deviceIp}`);
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(requestData),
-      signal: AbortSignal.timeout(IRIS_DEVICE_CONFIG.timeout),
-    });
+    let retries = 0;
+    const maxRetries = 3;
+    while (true) {
+      await irisCommandGuard();
+      const responseData: any = await httpRequest(endpoint, '/memberSaveState', requestData, IRIS_DEVICE_CONFIG.timeout);
+      console.log(`[DeviceSync] memberSaveState 响应: ${JSON.stringify(responseData)}`);
 
-    const responseData = await response.json();
-    console.log(`[DeviceSync] memberSaveState 响应: ${JSON.stringify(responseData)}`);
+      if (responseData.errorCode === 0 || responseData.errorCode === '0') {
+        const newState = state === 1 ? 'locked' : 'unlocked';
+        console.log(`[DeviceSync] 更新锁定状态: ${newState}`);
+        writeLockState(newState);
+        return { success: true };
+      }
 
-    if (responseData.errorCode === 0 || responseData.errorCode === '0') {
-      return { success: true };
-    } else {
+      // errorCode=97 表示设备正在初始化，等待后重试
+      if ((responseData.errorCode === 97 || responseData.errorCode === '97') && retries < maxRetries) {
+        retries++;
+        const waitMs = 2000 * retries;
+        console.log(`[DeviceSync] errorCode=97（设备初始化中），等待 ${waitMs}ms 后重试 (${retries}/${maxRetries})`);
+        await new Promise(resolve => setTimeout(resolve, waitMs));
+        continue;
+      }
+
       return { success: false, error: `锁定/解锁失败: errorCode=${responseData.errorCode}` };
     }
   } catch (error: any) {
@@ -435,7 +612,7 @@ export async function syncToIrisDeviceWithoutLock(
     singleIrisAllowed?: number;
   },
   skipDebugLog?: boolean,
-  skipBmpConversion?: boolean  // 新参数：跳过 BMP 转换
+  skipBmpConversion?: boolean
 ): Promise<{ success: boolean; response?: string; error?: string }> {
   try {
     const url = `${endpoint}/memberSave`;
@@ -483,14 +660,8 @@ export async function syncToIrisDeviceWithoutLock(
     console.log(`[DeviceSync] faceImage: ${payload.faceImage?.substring(0, 10)}... (${payload.faceImage?.length || 0}字符)`);
 
     // 直接上传人员（不锁定）
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(requestData),
-      signal: AbortSignal.timeout(IRIS_MEMBER_SAVE_TIMEOUT),
-    });
-
-    const responseData = await response.json();
+    await irisCommandGuard();
+    const responseData: any = await httpRequest(endpoint, '/memberSave', requestData, IRIS_MEMBER_SAVE_TIMEOUT);
     console.log(`[DeviceSync] 响应：${JSON.stringify(responseData)}`);
 
     if (responseData.errorCode === 0 || responseData.errorCode === '0') {
@@ -509,13 +680,12 @@ export async function syncToIrisDeviceWithoutLock(
 
 /**
  * 同步到虹膜设备（memberSave 接口）
- * 流程：锁定设备 -> 上传人员 -> 解锁设备
+ * 流程：锁定设备 → 等待200ms → 上传人员 → 保持锁定（不解锁）
  * @param skipDebugLog 是否跳过调试日志（重试时跳过，避免文件过多）
  *
  * 冷却机制：
  * - 冷却期间：sleep 10 秒（不操作设备）后返回失败，占用住 IAMS
  * - 锁定失败：立即返回失败
- * - 解锁失败：sleep 5 秒后重试解锁，成功则返回原失败结果，仍失败则进入冷却
  */
 export async function syncToIrisDevice(
   endpoint: string,
@@ -540,18 +710,30 @@ export async function syncToIrisDevice(
     return { success: false, error: '虹膜设备冷却中，请稍后重试' };
   }
 
+  // === 检查 personId 去重锁（防 IAMS 连发） ===
+  const personKey = payload.staffNum;
+  if (irisPersonLock.has(personKey)) {
+    console.log(`[${beijingTime()}] [设备] 虹膜人员锁: ${personKey} 正在下发中，跳过重复请求`);
+    return { success: true, response: '重复请求，已跳过', code: 200 };
+  }
+  irisPersonLock.set(personKey, setTimeout(() => {
+    irisPersonLock.delete(personKey);
+  }, 10000));
+
   // 设置为忙碌状态
   irisDeviceState = 'busy';
 
-  try {
-    const url = `${endpoint}/memberSave`;
+  // 清除 personId 锁的辅助函数
+  const clearPersonLock = () => { irisPersonLock.delete(personKey); };
 
+  try {
     // 转换虹膜图片为 BMP 格式
     const leftIrisBmp = payload.irisLeftImage ? await convertToBmpBase64(payload.irisLeftImage) : '';
     const rightIrisBmp = payload.irisRightImage ? await convertToBmpBase64(payload.irisRightImage) : '';
 
     if (!leftIrisBmp && !rightIrisBmp) {
       irisDeviceState = 'idle';
+      clearPersonLock();
       return { success: false, error: '虹膜数据转换失败' };
     }
 
@@ -583,97 +765,114 @@ export async function syncToIrisDevice(
 
     console.log(`[${beijingTime()}] [设备] 虹膜下发 ${payload.staffNum} ${payload.memberName}`);
 
-    // 1. 锁定设备
-    console.log(`[${beijingTime()}] [设备] 步骤1: 锁定设备...`);
-    const lockResult = await setIrisDeviceSaveState(endpoint, 1);
-    if (!lockResult.success) {
-      console.log(`[${beijingTime()}] [设备] ❌ 锁定失败，立即返回失败`);
-      irisDeviceState = 'idle';
-      return { success: false, error: lockResult.error || '锁定设备失败' };
-    }
-    console.log(`[${beijingTime()}] [设备] 锁定成功`);
+    // 重试机制：memberSave 可能崩溃设备，等待重启后重试
+    let maxRetries = 2;
+    let lastError: string | null = null;
 
-    // 等待8秒
-    console.log(`[${beijingTime()}] [设备] 等待8秒...`);
-    await new Promise(resolve => setTimeout(resolve, 8000));
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      if (attempt > 1) {
+        console.log(`[${beijingTime()}] [设备] === 第${attempt}次重试：等待设备重启（15秒） ===`);
+        await new Promise(resolve => setTimeout(resolve, 15000));
+      }
 
-    // 2. 上传人员
-    console.log(`[${beijingTime()}] [设备] 步骤2: 上传人员...`);
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(requestData),
-      signal: AbortSignal.timeout(IRIS_MEMBER_SAVE_TIMEOUT),
-    });
-
-    const responseData = await response.json();
-    console.log(`[${beijingTime()}] [设备] 上传完成: errorCode=${responseData.errorCode}`);
-
-    // 等待500ms再解锁
-    console.log(`[${beijingTime()}] [设备] 等待500ms...`);
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    // 3. 解锁设备
-    console.log(`[${beijingTime()}] [设备] 步骤3: 解锁设备...`);
-    const unlockResult = await setIrisDeviceSaveState(endpoint, 0);
-
-    if (!unlockResult.success) {
-      // 解锁失败：sleep 5 秒后重试
-      console.log(`[${beijingTime()}] [设备] ⚠️ 解锁失败，等待 5 秒后重试解锁...`);
-      await new Promise(resolve => setTimeout(resolve, 5000));
-
-      console.log(`[${beijingTime()}] [设备] 步骤3(重试): 解锁设备...`);
-      const unlockRetryResult = await setIrisDeviceSaveState(endpoint, 0);
-
-      if (unlockRetryResult.success) {
-        console.log(`[${beijingTime()}] [设备] 重试解锁成功，返回原操作结果`);
-        // 解锁重试成功：恢复空闲，返回原上传结果
+      // 1. 锁定设备（errorCode=97 已锁定也算成功）
+      console.log(`[${beijingTime()}] [设备] 步骤1: 锁定设备...`);
+      const lockResult = await setIrisDeviceSaveState(endpoint, 1);
+      if (!lockResult.success) {
+        console.log(`[${beijingTime()}] [设备] ❌ 锁定失败，立即返回失败`);
         irisDeviceState = 'idle';
-      } else {
-        // 重试仍失败：进入冷却
-        console.log(`[${beijingTime()}] [设备] ❌ 重试解锁仍失败，进入 ${IRIS_COOLDOWN_MS / 1000} 秒冷却`);
-        irisDeviceState = 'cooling_down';
-        setTimeout(() => {
-          irisDeviceState = 'idle';
-          console.log(`[${beijingTime()}] [设备] 虹膜设备冷却结束`);
-        }, IRIS_COOLDOWN_MS);
+        clearPersonLock();
+        return { success: false, error: lockResult.error || '锁定设备失败' };
       }
-    } else {
-      console.log(`[${beijingTime()}] [设备] 解锁成功`);
+      console.log(`[${beijingTime()}] [设备] 锁定成功`);
+
+      // 2. 等待1秒后上传（给设备足够时间消化锁定指令）
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // 3. 上传人员
+      console.log(`[${beijingTime()}] [设备] 步骤2: 上传人员...`);
+      await irisCommandGuard();
+
+      let responseData: any;
+      try {
+        responseData = await httpRequest(endpoint, '/memberSave', requestData, IRIS_MEMBER_SAVE_TIMEOUT);
+        console.log(`[${beijingTime()}] [设备] 上传完成: errorCode=${responseData.errorCode}`);
+
+        // errorCode=97 = 设备未初始化完成，重试
+        if (responseData.errorCode === 97 || responseData.errorCode === '97') {
+          console.log(`[${beijingTime()}] [设备] ⚠️ errorCode=97（设备初始化中），重试`);
+          lastError = 'errorCode=97 设备初始化中';
+          continue;
+        }
+      } catch (e) {
+        // socket hang up = 设备崩溃，等待重启后重试
+        lastError = e instanceof Error ? e.message : String(e);
+        console.log(`[${beijingTime()}] [设备] ⚠️ 上传异常: ${lastError}（设备可能已崩溃，等待重启）`);
+        continue; // 跳到重试
+      }
+
+      // 设备保持锁定状态，不解锁
       irisDeviceState = 'idle';
+      clearPersonLock();
+
+      if (responseData.errorCode === 0 || responseData.errorCode === '0') {
+        console.log(`[${beijingTime()}] [设备] ✅ 虹膜添加成功`);
+
+        // 上传成功后重新锁定
+        console.log(`[${beijingTime()}] [设备] 步骤3: 重新锁定设备...`);
+        try {
+          await setIrisDeviceSaveState(endpoint, 1);
+        } catch (e) {
+          console.log(`[${beijingTime()}] [设备] ⚠️ 重新锁定异常: ${e instanceof Error ? e.message : String(e)}`);
+        }
+
+        return { success: true, response: JSON.stringify(responseData) };
+      } else {
+        const errorCodeNum = Number(responseData.errorCode);
+
+        // 上传失败也要重新锁定
+        console.log(`[${beijingTime()}] [设备] 重新锁定设备...`);
+        try {
+          await setIrisDeviceSaveState(endpoint, 1);
+        } catch (e) {
+          console.log(`[${beijingTime()}] [设备] 重新锁定异常: ${e instanceof Error ? e.message : String(e)}`);
+        }
+
+        // errorCode 9（人员已存在）或 10（人员不在列表中）返回 401，不保存数据库
+        if (errorCodeNum === 9 ) {
+          console.log(`[${beijingTime()}] [设备] ❌ 虹膜添加失败: errorCode=${responseData.errorCode}，返回401给IAMS，不保存数据库`);
+          return { success: false, error: '已经存在相同人脸', code: 401 };
+        }
+
+        if ( errorCodeNum === 10) {
+          console.log(`[${beijingTime()}] [设备] ❌ 虹膜添加失败: errorCode=${responseData.errorCode}，返回401给IAMS，不保存数据库`);
+          return { success: false, error: '已经存在相同虹膜特征', code: 401 };
+        }
+        // errorCode 12 = 生成左眼虹膜错误, 13 = 生成右眼虹膜错误
+        if (errorCodeNum === 12) {
+          console.log(`[${beijingTime()}] [设备] ❌ 虹膜添加失败: errorCode=12 生成左眼虹膜错误，返回401给IAMS`);
+          return { success: false, error: '12：生成左眼虹膜错误', code: 401 };
+        }
+        if (errorCodeNum === 13) {
+          console.log(`[${beijingTime()}] [设备] ❌ 虹膜添加失败: errorCode=13 生成右眼虹膜错误，返回401给IAMS`);
+          return { success: false, error: '13：生成右眼虹膜错误', code: 401 };
+        }
+
+        // 其他 errorCode，不重试
+        console.log(`[${beijingTime()}] [设备] ❌ 虹膜添加失败: errorCode=${responseData.errorCode}`);
+        return { success: false, error: `errorCode=${responseData.errorCode}` };
+      }
     }
 
-    if (responseData.errorCode === 0 || responseData.errorCode === '0') {
-      console.log(`[${beijingTime()}] [设备] ✅ 虹膜添加成功`);
-      return { success: true, response: JSON.stringify(responseData) };
-    } else {
-      const errorCodeNum = Number(responseData.errorCode);
-      // errorCode 9（人员已存在）或 10（人员不在列表中）返回 401，不保存数据库
-      if (errorCodeNum === 9 ) {
-        console.log(`[${beijingTime()}] [设备] ❌ 虹膜添加失败: errorCode=${responseData.errorCode}，返回401给IAMS，不保存数据库`);
-        return { success: false, error: '已经存在相同人脸', code: 401 };
-      }
-
-      if ( errorCodeNum === 10) {
-        console.log(`[${beijingTime()}] [设备] ❌ 虹膜添加失败: errorCode=${responseData.errorCode}，返回401给IAMS，不保存数据库`);
-        return { success: false, error: '已经存在相同虹膜特征', code: 401 };
-      }
-      // errorCode 12 = 生成左眼虹膜错误, 13 = 生成右眼虹膜错误
-      if (errorCodeNum === 12) {
-        console.log(`[${beijingTime()}] [设备] ❌ 虹膜添加失败: errorCode=12 生成左眼虹膜错误，返回401给IAMS`);
-        return { success: false, error: '12：生成左眼虹膜错误', code: 401 };
-      }
-      if (errorCodeNum === 13) {
-        console.log(`[${beijingTime()}] [设备] ❌ 虹膜添加失败: errorCode=13 生成右眼虹膜错误，返回401给IAMS`);
-        return { success: false, error: '13：生成右眼虹膜错误', code: 401 };
-      }
-      console.log(`[${beijingTime()}] [设备] ❌ 虹膜添加失败: errorCode=${responseData.errorCode}`);
-      return { success: false, error: `errorCode=${responseData.errorCode}` };
-    }
+    // 重试耗尽
+    console.log(`[${beijingTime()}] [设备] ❌ 虹膜下发重试${maxRetries - 1}次后仍失败: ${lastError}`);
+    irisDeviceState = 'idle';
+    clearPersonLock();
+    return { success: false, error: `设备崩溃，重试${maxRetries - 1}次后失败: ${lastError}` };
   } catch (error: any) {
     console.error(`[${beijingTime()}] [设备] 虹膜下发异常: ${error.message}`);
-    try { await setIrisDeviceSaveState(endpoint, 0); } catch {}
     irisDeviceState = 'idle';
+    irisPersonLock.delete(personKey);
     return { success: false, error: translateErrorMessage(error.message) };
   }
 }
@@ -689,8 +888,6 @@ export async function deleteFromIrisDevice(
   const beijingTime = () => new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
 
   try {
-    const url = `${endpoint}/memberDelete`;
-
     // ⚠️ 重要：参数名是 staffNum，不是 staffNumDec
     const requestData = {
       staffNum,
@@ -699,14 +896,8 @@ export async function deleteFromIrisDevice(
     console.log(`[${beijingTime()}] [DeviceSync] 从虹膜设备删除用户：${staffNum}`);
     console.log(`[${beijingTime()}] [DeviceSync] Request: ${JSON.stringify(requestData)}`);
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(requestData),
-      signal: AbortSignal.timeout(IRIS_DEVICE_CONFIG.timeout),
-    });
-
-    const responseData = await response.json();
+    await irisCommandGuard();
+    const responseData: any = await httpRequest(endpoint, '/memberDelete', requestData, IRIS_DEVICE_CONFIG.timeout);
     console.log(`[${beijingTime()}] [DeviceSync] 响应：${JSON.stringify(responseData)}`);
 
     // errorCode=0 成功，errorCode=16 人员不存在也算成功（目标状态已达成）
@@ -745,14 +936,8 @@ export async function getIrisDeviceMembers(
 
     console.log(`[DeviceSync] 获取虹膜设备人员列表`);
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(requestData),
-      signal: AbortSignal.timeout(IRIS_DEVICE_CONFIG.timeout),
-    });
-
-    const responseData = await response.json();
+    await irisCommandGuard();
+    const responseData: any = await httpRequest(endpoint, '/members', requestData, IRIS_DEVICE_CONFIG.timeout);
     console.log(`[DeviceSync] 响应：${JSON.stringify(responseData).substring(0, 200)}...`);
 
     if (responseData.errorCode === 0 || responseData.errorCode === '0') {
@@ -1018,36 +1203,28 @@ export async function checkDeviceStatus(
   );
   
   try {
-    let url: string;
     if (type === 'palm') {
       // 掌纹设备：使用 105 接口测试在线（sendData 不编码）
-      url = `${deviceEndpoint}/api?sendData={"request":"105"}`;
-    } else {
-      // 虹膜设备：使用 members 接口测试
-      url = `${deviceEndpoint}/members`;
-    }
+      const palmUrl = `${deviceEndpoint}/api?sendData=${encodeURIComponent('{"request":"105"}')}`;
+      const response = await fetch(palmUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(3000),
+      });
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: type === 'iris' ? JSON.stringify({ count: 1, key: '', lastStaffNumDec: '', needImages: 0 }) : undefined,
-      signal: AbortSignal.timeout(3000),
-    });
-    
-    if (response.ok) {
-      return {
-        online: true,
-        type,
-        endpoint: deviceEndpoint,
-        message: '设备在线',
-      };
+      if (response.ok) {
+        return { online: true, type, endpoint: deviceEndpoint, message: '设备在线' };
+      } else {
+        return { online: false, type, endpoint: deviceEndpoint, message: `设备响应异常：${response.status}` };
+      }
     } else {
-      return {
-        online: false,
-        type,
-        endpoint: deviceEndpoint,
-        message: `设备响应异常：${response.status}`,
-      };
+      // 虹膜设备：使用 members 接口测试（httpRequest 避免 fetch keep-alive 问题）
+      const responseData: any = await httpRequest(deviceEndpoint, '/members', { count: 1, key: '', lastStaffNumDec: '', needImages: 0 }, 3000);
+      if (responseData.errorCode === 0 || responseData.errorCode === '0') {
+        return { online: true, type, endpoint: deviceEndpoint, message: '设备在线' };
+      } else {
+        return { online: false, type, endpoint: deviceEndpoint, message: `设备响应异常：errorCode=${responseData.errorCode}` };
+      }
     }
   } catch (error: any) {
     // ECONNRESET 说明设备端主动断开连接，设备仍在工作，视为在线
@@ -1371,7 +1548,7 @@ export async function handlePassportAdd(
   const palmFeature = payload.palmFeature || (isPalm ? payload.content : undefined);
 
   if (isIris) {
-    // 虹膜新增：先同步设备
+    // 虹膜新增：先同步设备（正常流程：锁定→等待8秒→上传→解锁）
     console.log('[MQTT-Handler] 虹膜新增：先同步设备');
 
     const memberName = payload.personName || payload.personId || '';  // 默认用 personId
@@ -1384,14 +1561,28 @@ export async function handlePassportAdd(
         memberName: memberName,
         irisLeftImage: irisLeftImage,
         irisRightImage: irisRightImage,
-        faceImage: getSampleFaceImage(),
+        faceImage: '',  // 空字符串（设备已设置不检测人脸）
       },
       true  // skipDebugLog
     );
 
-    // ⚠️ 设备成功才保存数据库（不再存储图片/特征大字段，转发后不需要持久化）
+    // ⚠️ 设备成功才保存数据库 + 加密存储 + 从设备删除
     if (result.success) {
-      console.log('[MQTT-Handler] 设备添加成功，保存数据库（轻字段）');
+      console.log('[MQTT-Handler] 设备添加成功，保存加密文件 + 数据库 + 从设备删除');
+
+      // 1. 保存加密文件（memberSave 的完整 payload）
+      const { saveIrisData } = await import('./iris-data');
+      const irisPayload = {
+        staffNum: payload.personId,
+        staffNumDec: payload.personId,
+        memberName: memberName,
+        irisLeftImage: irisLeftImage,
+        irisRightImage: irisRightImage,
+        faceImage: '',
+      };
+      const dataPath = saveIrisData(payload.credentialId, irisPayload);
+
+      // 2. 保存数据库（存储 iris_data_path，不再存大字段）
       const { upsertCredential } = await import('./db-credentials');
       await upsertCredential({
         person_id: payload.personId,
@@ -1400,7 +1591,12 @@ export async function handlePassportAdd(
         type: payload.credentialType as import('./db-credentials').CredentialType,
         auth_type_list: payload.authTypeList?.join(',') || String(payload.credentialType),
         auth_model: payload.authModel,
+        iris_data_path: dataPath,
       });
+
+      // 3. 从虹膜设备删除刚才上传的数据（确保设备不保留人员）
+      console.log('[MQTT-Handler] 从虹膜设备删除刚上传的数据');
+      await deleteFromIrisDevice(device.endpoint, payload.personId);
     } else {
       console.log('[MQTT-Handler] 设备添加失败，不保存数据库');
     }
@@ -1545,19 +1741,24 @@ export async function handlePassportDelete(
   console.log(`[${beijingTime()}] [MQTT-Handler] 找到数据库记录: credentialId=${dbCredentialId}, personId=${personId}, type=${credential.type}`);
 
   if (isIris) {
-    console.log(`[${beijingTime()}] [MQTT-Handler] 虹膜删除：先删设备 personId=${personId}`);
+    console.log(`[${beijingTime()}] [MQTT-Handler] 虹膜删除：删除数据库 + 加密文件（设备上已无数据）`);
 
-    const result = await deleteFromIrisDevice(device.endpoint, personId);
-
-    // ⚠️ 设备成功才删数据库
-    if (result.success && dbCredentialId) {
-      console.log(`[${beijingTime()}] [MQTT-Handler] 设备删除成功，删除数据库: credentialId=${dbCredentialId}`);
+    // 1. 删除数据库凭证
+    if (dbCredentialId) {
       await deleteCredential(dbCredentialId);
-    } else if (!result.success) {
-      console.log(`[${beijingTime()}] [MQTT-Handler] 设备删除失败，不删数据库`);
+      console.log(`[${beijingTime()}] [MQTT-Handler] 数据库凭证已删除: credentialId=${dbCredentialId}`);
     }
 
-    return result;
+    // 2. 删除本地加密文件
+    try {
+      const { deleteIrisData } = await import('./iris-data');
+      deleteIrisData(dbCredentialId);
+      console.log(`[${beijingTime()}] [MQTT-Handler] 加密文件已删除: credentialId=${dbCredentialId}`);
+    } catch (e: any) {
+      console.log(`[${beijingTime()}] [MQTT-Handler] 删除加密文件失败: ${e.message}（可忽略）`);
+    }
+
+    return { success: true, response: '已从数据库和加密文件删除' };
   } else if (isPalm) {
     // 优先使用 custom_id（存储时的 userId），兼容旧数据回退到 personId
     const userId = credential

@@ -10,6 +10,8 @@ interface UserInfo {
   personName: string;
   boxList: string;
   credentialId: number;
+  irisCredentialId?: number | null;
+  irisDataPath?: string | null;
 }
 
 function IrisContent() {
@@ -23,6 +25,9 @@ function IrisContent() {
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [mismatchHint, setMismatchHint] = useState(false);
   const pollingRef = useRef(true);
+  const userInfoRef = useRef<UserInfo | null>(null);
+  const countdownRef = useRef(60);
+  countdownRef.current = countdown;
 
   const POLL_INTERVAL = 3000; // 3秒
   const POLL_LOOKBACK = 6000; // 6秒时间窗口，确保与上次轮询有重叠
@@ -31,18 +36,23 @@ function IrisContent() {
     pollingRef.current = false;
   }, []);
 
-  // 获取用户信息
+  // 获取用户信息（含虹膜凭证信息）
   const fetchUserInfo = useCallback(async () => {
     try {
-      const response = await fetch(`/api/credentials?personId=${encodeURIComponent(identityId)}`);
+      const response = await fetch(`/api/auth/types?identityId=${encodeURIComponent(identityId)}`);
       const data = await response.json();
-      if (data.success && data.credentials && data.credentials.length > 0) {
-        const cred = data.credentials[0];
-        setUserInfo({
-          personName: cred.person_name || '',
-          boxList: cred.box_list || '',
-          credentialId: cred.credential_id,
-        });
+      if (data.success && data.data) {
+        const d = data.data;
+        const newUserInfo: UserInfo = {
+          personName: d.personName || '',
+          boxList: d.boxList || '',
+          credentialId: d.credentialId || 0,
+          irisCredentialId: d.irisCredentialId || null,
+          irisDataPath: d.irisDataPath || null,
+        };
+        setUserInfo(newUserInfo);
+        userInfoRef.current = newUserInfo;
+        console.log('[虹膜] 用户信息获取成功, irisCredentialId:', newUserInfo.irisCredentialId);
       }
     } catch (err) {
       console.error('获取用户信息失败:', err);
@@ -65,11 +75,42 @@ function IrisContent() {
   }, []);
 
   const startPolling = useCallback(async () => {
-    console.log('[虹膜] 开始轮询');
+    console.log('[虹膜] 开始预加载虹膜数据...');
     pollingRef.current = true;
 
+    // 先调用 preload API 下发虹膜数据到设备
+    const credentialId = userInfoRef.current?.irisCredentialId;
+    const dataPath = userInfoRef.current?.irisDataPath;
+    if (!credentialId || !dataPath) {
+      console.error('[虹膜] 缺少 irisCredentialId 或 irisDataPath，无法预加载');
+      setStatus('timeout');
+      setMessage('虹膜数据未配置，请联系管理员');
+      return;
+    }
+
+    try {
+      const preloadResponse = await fetch('/api/device/iris/preload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credentialId }),
+      });
+      const preloadData = await preloadResponse.json();
+      if (!preloadData.success) {
+        console.error('[虹膜] 预加载失败:', preloadData.error);
+        setStatus('timeout');
+        setMessage('虹膜数据加载失败: ' + (preloadData.error || '未知错误'));
+        return;
+      }
+      console.log('[虹膜] 预加载成功，开始轮询');
+    } catch (err) {
+      console.error('[虹膜] 预加载异常:', err);
+      setStatus('timeout');
+      setMessage('虹膜数据加载异常');
+      return;
+    }
+
     const startTime = Date.now();
-    const timeoutMs = countdown * 1000;
+    const timeoutMs = countdownRef.current * 1000;
 
     // 等待1秒后开始查询
     await new Promise(resolve => setTimeout(resolve, 1000));
@@ -99,7 +140,6 @@ function IrisContent() {
             console.log('[虹膜] 收到记录:', data.body.length, '条');
 
             // 检查是否有匹配的识别记录
-            // 将记录发送到服务端，用加密后的 identityId 进行比对
             let foundOther = false;
             const verifyResponse = await fetch('/api/device/iris/verify', {
               method: 'POST',
@@ -126,6 +166,13 @@ function IrisContent() {
               setMismatchHint(false);
               stopPolling();
 
+              // 识别成功后清理设备数据
+              fetch('/api/device/iris/cleanup', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ credentialId }),
+              }).catch(() => {});
+
               // 上传通行记录到IAMS
               try {
                 const uploadResponse = await fetch('/api/pass-log/upload', {
@@ -133,7 +180,7 @@ function IrisContent() {
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({
                     personId: identityId,
-                    credentialId: verifyResult.credentialId || userInfo?.credentialId || 0,
+                    credentialId: verifyResult.credentialId || userInfoRef.current?.credentialId || 0,
                     authTypes: ['iris'],
                   }),
                 });
@@ -147,10 +194,12 @@ function IrisContent() {
 
               // 跳转到成功页面
               setTimeout(() => {
+                const name = verifyResult.personName || userInfoRef.current?.personName || '';
+                const boxes = userInfoRef.current?.boxList || '';
                 const params = new URLSearchParams({
                   result: 'success',
-                  name: verifyResult.personName || userInfo?.personName || '',
-                  boxes: userInfo?.boxList || '',
+                  name: name,
+                  boxes: boxes,
                 });
                 router.push(`/kiosk/success?${params.toString()}`);
               }, 1500);
@@ -181,15 +230,24 @@ function IrisContent() {
 
     // 超时
     if (pollingRef.current) {
+      console.log('[虹膜] 轮询超时，清理设备数据');
+      // 超时清理设备数据
+      fetch('/api/device/iris/cleanup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credentialId }),
+      }).catch(() => {});
       setStatus('timeout');
       setMessage('验证超时，请重试');
     }
-  }, [identityId, router, stopPolling, countdown, userInfo]);
+  }, [identityId, router, stopPolling]);
 
   useEffect(() => {
     // 先加载设置
     fetchSettings();
   }, [fetchSettings]);
+
+  const hasStartedPollingRef = useRef(false);
 
   useEffect(() => {
     if (!settingsLoaded) return;
@@ -198,15 +256,21 @@ function IrisContent() {
       const timer = setTimeout(() => {
         setStatus('scanning');
         setMessage('正在扫描...');
-        // 预先获取用户信息
-        fetchUserInfo();
       }, 1500);
       return () => clearTimeout(timer);
-    } else if (status === 'scanning') {
-      startPolling();
+    } else if (status === 'scanning' && !hasStartedPollingRef.current) {
+      // 只执行一次
+      hasStartedPollingRef.current = true;
+      // 先获取用户信息（含 irisCredentialId），再开始轮询
+      const initPolling = async () => {
+        await fetchUserInfo();
+        if (!pollingRef.current) return;
+        startPolling();
+      };
+      initPolling();
       return () => stopPolling();
     }
-  }, [status, startPolling, stopPolling, fetchUserInfo, settingsLoaded, countdown]);
+  }, [status, startPolling, stopPolling, fetchUserInfo, settingsLoaded]);
 
   // 倒计时
   useEffect(() => {
@@ -216,6 +280,14 @@ function IrisContent() {
       setCountdown(prev => {
         if (prev <= 1) {
           stopPolling();
+          // 倒计时超时清理设备数据
+          if (userInfoRef.current?.irisCredentialId) {
+            fetch('/api/device/iris/cleanup', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ credentialId: userInfo.irisCredentialId }),
+            }).catch(() => {});
+          }
           setStatus('timeout');
           setMessage('验证超时');
           return 0;
@@ -225,10 +297,18 @@ function IrisContent() {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [status, stopPolling]);
+  }, [status, stopPolling, userInfo]);
 
   const handleRetry = () => {
     stopPolling();
+    // 重试前清理设备数据
+    if (userInfoRef.current?.irisCredentialId) {
+      fetch('/api/device/iris/cleanup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credentialId: userInfo.irisCredentialId }),
+      }).catch(() => {});
+    }
     setStatus('waiting');
     setMessage('请注视虹膜摄像头');
     setCountdown(60);
@@ -236,6 +316,14 @@ function IrisContent() {
 
   const handleBack = () => {
     stopPolling();
+    // 返回前清理设备数据
+    if (userInfoRef.current?.irisCredentialId) {
+      fetch('/api/device/iris/cleanup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credentialId: userInfo.irisCredentialId }),
+      }).catch(() => {});
+    }
     router.push(`/kiosk/select?identityId=${encodeURIComponent(identityId)}`);
   };
 

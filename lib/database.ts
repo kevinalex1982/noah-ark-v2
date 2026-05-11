@@ -102,6 +102,14 @@ async function initTables(database: Client): Promise<void> {
     // 列已存在，忽略错误
   }
 
+  // 添加 iris_data_path 列（如果不存在）
+  // 用于存储虹膜数据加密文件路径，实现按需下发
+  try {
+    await database.execute(`ALTER TABLE credentials ADD COLUMN iris_data_path TEXT`);
+  } catch (e: any) {
+    // 列已存在，忽略错误
+  }
+
   // device_config 表（设备配置）
   await database.execute(`
     CREATE TABLE IF NOT EXISTS device_config (

@@ -50,11 +50,12 @@ function SelectContent() {
 
   // 组合认证模式：自动跳转到组合认证页
   useEffect(() => {
-    if (!loading && authModel === 2 && authTypes.length > 0) {
+    if (!loading && authModel === 2 && authTypes.length > 0 && !redirecting) {
+      console.log('[SelectAuth] 组合认证模式，自动跳转到 /kiosk/combined');
       setRedirecting(true);
-      router.push(`/kiosk/combined?identityId=${encodeURIComponent(identityId)}`);
+      router.replace(`/kiosk/combined?identityId=${encodeURIComponent(identityId)}`);
     }
-  }, [loading, authModel, authTypes, identityId, router]);
+  }, [loading, authModel, authTypes, identityId, router, redirecting]);
 
   // 无有效认证类型时的提示
   if (!loading && authTypes.length === 0) {

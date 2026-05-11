@@ -124,7 +124,7 @@ async function addCredentials(authModel: number) {
     log(`数据库: 写入 ${cred.typeName} (type=${cred.type}, id=${cred.credentialId})`);
   }
 
-  // === 2. 同步虹膜设备（内置 锁定→等待8秒→上传→等待500ms→解锁）===
+  // === 2. 同步虹膜设备（锁定→上传→解锁），成功后加密存储+设备删除 ===
   const devices = await getDeviceConfigs();
   const irisDevice = devices.find(d => d.device_type === 'iris');
   if (irisDevice) {
@@ -139,6 +139,36 @@ async function addCredentials(authModel: number) {
       purview: 30,
     });
     log(`虹膜同步: ${irisResult.success ? '✅ 成功' : '❌ 失败 - ' + irisResult.error}`);
+
+    // 上传成功后：加密存储 + 设备删除（按需下发模式）
+    if (irisResult.success) {
+      log('虹膜数据: 加密存储到本地文件...');
+      const { saveIrisData } = await import('@/lib/iris-data');
+      const irisPayload = {
+        staffNum: personId,
+        staffNumDec: personId,
+        memberName: irisData.name,
+        irisLeftImage: irisData.leftIrisImage,
+        irisRightImage: irisData.rightIrisImage,
+        faceImage: SAMPLE_FACE_IMAGE_BASE64,
+      };
+      const dataPath = saveIrisData(CREDENTIAL_IDS.iris, irisPayload);
+      log(`虹膜数据: 已保存到 ${dataPath}`);
+
+      // 更新数据库 iris_data_path
+      const { getDatabase } = await import('@/lib/database');
+      const db = getDatabase();
+      await db.execute({
+        sql: 'UPDATE credentials SET iris_data_path = ?, updated_at = ? WHERE credential_id = ?',
+        args: [dataPath, new Date().toISOString(), CREDENTIAL_IDS.iris]
+      });
+      log(`数据库: 已更新虹膜凭证 iris_data_path=${dataPath}`);
+
+      // 从虹膜设备删除刚才上传的数据（保持设备无人员）
+      log('虹膜删除: 从设备删除刚上传的数据...');
+      const delResult = await deleteFromIrisDevice(irisDevice.endpoint, personId);
+      log(`虹膜删除: ${delResult.success ? '✅ 成功' : '❌ 失败 - ' + delResult.error}`);
+    }
   } else {
     log('虹膜同步: 未配置虹膜设备，跳过');
   }
@@ -182,16 +212,29 @@ async function deleteCredentials() {
   const irisDevice = devices.find(d => d.device_type === 'iris');
   const palmDevice = devices.find(d => d.device_type === 'palm');
 
-  // 收集需要删除的 person_id 和 custom_id（去重后统一删设备）
+  // 收集需要删除的 person_id、custom_id、虹膜凭证 ID
   const personIds = new Set<string>();
   const palmUserIds = new Set<string>();
+  const irisCredentialIds: number[] = [];
 
   for (const cred of dbCreds) {
     personIds.add(cred.person_id);
     if (cred.custom_id) palmUserIds.add(cred.custom_id);
+    if (cred.type === 7) irisCredentialIds.push(cred.credential_id);
   }
 
-  // 从虹膜设备删除（按 person_id 去重）
+  // 删除本地虹膜加密文件
+  for (const cid of irisCredentialIds) {
+    try {
+      const { deleteIrisData } = await import('@/lib/iris-data');
+      deleteIrisData(cid);
+      log(`虹膜文件: 已删除 credentialId=${cid}`);
+    } catch (e: any) {
+      log(`虹膜文件: 删除失败 credentialId=${cid} - ${e.message}（可忽略）`);
+    }
+  }
+
+  // 从虹膜设备删除（按 person_id 去重，兼容旧数据）
   for (const pid of personIds) {
     if (irisDevice) {
       log(`虹膜删除: 从 ${irisDevice.endpoint} 删除 staffNum=${pid}...`);

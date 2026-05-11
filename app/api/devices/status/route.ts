@@ -7,6 +7,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDeviceConfigs, updateDeviceStatus, DeviceConfig } from '@/lib/sync-queue';
 import { initDatabase } from '@/lib/database';
+import { getIrisDeviceLockState, isIrisDeviceIdle } from '@/lib/device-sync';
+import * as http from 'http';
 
 // 设备 API 端点配置
 const DEVICE_ENDPOINTS = {
@@ -80,7 +82,7 @@ async function checkPalmDeviceHealth(endpoint: string): Promise<{
   }
 }
 
-// 检查虹膜设备状态（使用 members 接口）
+// 检查虹膜设备状态（使用 http.request，避免 fetch keep-alive 问题）
 async function checkIrisDeviceHealth(endpoint: string): Promise<{
   online: boolean;
   responseTime?: number;
@@ -89,48 +91,51 @@ async function checkIrisDeviceHealth(endpoint: string): Promise<{
 }> {
   const startTime = Date.now();
 
+  // 设备忙碌时跳过检查，避免并发请求导致设备重新初始化
+  if (!isIrisDeviceIdle()) {
+    return { online: true, error: '设备忙碌中，跳过检查' };
+  }
+
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    const url = new URL(endpoint + '/members');
+    const postData = JSON.stringify({ count: 1, key: '', lastStaffNumDec: '', needImages: 0 });
 
-    const url = `${endpoint}/members`;
+    return new Promise((resolve) => {
+      const req = http.request({
+        hostname: url.hostname,
+        port: url.port || 80,
+        path: url.pathname,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(postData) },
+        agent: false,
+        timeout: 5000,
+      }, (res) => {
+        let data = '';
+        res.on('data', chunk => data += chunk);
+        res.on('end', () => {
+          const responseTime = Date.now() - startTime;
+          try {
+            const json = JSON.parse(data);
+            if (json.errorCode === 0 || json.errorCode === '0') {
+              const userCount = json.body?.length || 0;
+              resolve({ online: true, responseTime, userCount });
+            } else {
+              resolve({ online: false, responseTime, error: `errorCode=${json.errorCode}` });
+            }
+          } catch {
+            resolve({ online: false, responseTime, error: 'JSON 解析失败' });
+          }
+        });
+      });
 
-    console.log(`[IrisDevice] 检查状态 URL: ${url}`);
+      req.on('error', () => { resolve({ online: false, error: '连接失败' }); });
+      req.on('timeout', () => { req.destroy(); resolve({ online: false, error: '超时' }); });
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ count: 1, key: '', lastStaffNumDec: '', needImages: 0 }),
-      signal: controller.signal,
+      req.write(postData);
+      req.end();
     });
-
-    clearTimeout(timeoutId);
-    const responseTime = Date.now() - startTime;
-
-    console.log(`[IrisDevice] HTTP 状态: ${response.status}, 耗时: ${responseTime}ms`);
-
-    if (response.ok) {
-      const text = await response.text();
-      console.log(`[IrisDevice] 响应原文(前200字符): ${text.substring(0, 200)}`);
-
-      try {
-        const data = JSON.parse(text);
-        // members 接口返回人员列表
-        const userCount = data.data?.length || 0;
-        console.log(`[IrisDevice] 用户数量: ${userCount}`);
-
-        return { online: true, responseTime, userCount };
-      } catch (parseError) {
-        console.error(`[IrisDevice] JSON 解析失败`);
-        return { online: false, error: 'JSON 解析失败' };
-      }
-    } else {
-      return { online: false, error: `HTTP ${response.status}` };
-    }
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error(`[IrisDevice] 检查失败:`, errorMessage);
-    return { online: false, error: errorMessage };
+    return { online: false, error: error instanceof Error ? error.message : String(error) };
   }
 }
 
