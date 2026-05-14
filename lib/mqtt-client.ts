@@ -85,6 +85,12 @@ async function processQueue() {
       // ⚠️ 从请求中提取需要返回的字段
       const reqData = item.message.data || {};
 
+      // ⚠️ skipResponse = 凭证已存在且 5 分钟内，不回复任何内容
+      if (result.skipResponse) {
+        console.log(`${bjt()} [MQTT] ${item.action} skipResponse=true，跳过回复`);
+        continue;
+      }
+
       // ⚠️ 使用 result.code（如果有），否则根据 success 计算
       const responseCode = result.code ?? (result.success ? 200 : 500);
 
@@ -152,7 +158,7 @@ async function processMessage(
   deviceId: string,
   action: string,
   message: any
-): Promise<{ success: boolean; error?: string; response?: string; code?: number }> {
+): Promise<{ success: boolean; error?: string; response?: string; code?: number; skipResponse?: boolean }> {
   const startTime = Date.now();
 
   // ⚠️ IAMS 格式：从 message.data 读取业务数据
@@ -226,6 +232,8 @@ async function processMessage(
     enable: data.enable,
     authModel: data.authModel,
     boxList: data.boxList,
+    startTime: data.startTime,      // 凭证有效期开始
+    endTime: data.endTime,          // 凭证有效期结束
   };
 
   // ⚠️ 关键：先保存到 sync_queue（创建下发记录）
@@ -258,17 +266,30 @@ async function processMessage(
 
   // 执行设备同步
   // ⚠️ 注意：passport-del 不是 passport-delete
-  let result: { success: boolean; response?: string; error?: string };
+  let result: { success: boolean; response?: string; error?: string; code?: number; skipResponse?: boolean };
 
   try {
     // ⚠️ 密码(5)和胁迫码(9)不需要设备，直接存数据库
     if (credentialType === 5 || credentialType === 9) {
       if (op === 'passport-add') {
-        // ⚠️ 检查凭证是否已存在
+        // ⚠️ 检查凭证是否已存在，根据入库时间决定响应策略
         const existingCred = await getCredentialById(data.id);
         if (existingCred) {
-          console.log(`${bjt()} [MQTT] 凭证已存在, 跳过`);
-          result = { success: true, response: '凭证已存在' };
+          const createdAt = new Date(existingCred.created_at).getTime();
+          const elapsed = Date.now() - createdAt;
+          const fiveMin = 5 * 60 * 1000;
+          const oneHour = 60 * 60 * 1000;
+
+          if (elapsed < fiveMin) {
+            console.log(`${bjt()} [MQTT] 密码/胁迫码已存在(${elapsed}ms < 5min)，跳过回复`);
+            result = { success: true, response: '凭证已存在', skipResponse: true };
+          } else if (elapsed < oneHour) {
+            console.log(`${bjt()} [MQTT] 密码/胁迫码已存在(${elapsed}ms，5min~1h)，返回 405`);
+            result = { success: true, response: '凭证已经存在', code: 405 };
+          } else {
+            console.log(`${bjt()} [MQTT] 密码/胁迫码已存在(${elapsed}ms > 1h)，返回 200`);
+            result = { success: true, response: '凭证已存在', code: 200 };
+          }
         } else {
           await upsertCredential({
             person_id: data.personId || '',
@@ -281,6 +302,8 @@ async function processMessage(
             tags: Array.isArray(data.tags) ? data.tags.join(',') : (data.tags || null),
             auth_model: data.authModel ?? 1,
             box_list: data.boxList || null,
+            start_time: data.startTime ?? null,
+            end_time: data.endTime ?? null,
             enable: data.enable ?? 1,
           });
           result = { success: true, response: '已保存到数据库' };
@@ -293,6 +316,8 @@ async function processMessage(
           auth_model: data.authModel ?? 1,
           auth_type_list: data.authTypeList || null,
           box_list: data.boxList || null,
+          start_time: data.startTime ?? null,
+          end_time: data.endTime ?? null,
           enable: data.enable ?? 1,
         });
         result = { success: true, response: '属性已更新' };
@@ -894,57 +919,61 @@ async function handleMessage(topic: string, payload: Buffer): Promise<void> {
   if (action === 'attr-set') {
     console.log(`${bjt()} [MQTT] 收到配置下发 (attr-set)`);
 
-    const reqData = message.data || {};
-    const setKeys = Object.keys(reqData);
+    // 保存收到的 attr-set 请求，方便排查 IAMS 下发的内容
+    saveAttrSetRequest(message);
 
-    // 逐个字段处理，全部存起来，不判断失败
-    const result: Record<string, any> = {};
+    let result: Record<string, any> = {};
+    try {
+      const reqData = message.data || {};
+      const setKeys = Object.keys(reqData);
+      result = {};
 
-    for (const key of setKeys) {
-      switch (key) {
-        case 'deviceTime': {
-          // 尝试设置系统时间（不保证成功，不崩溃）
-          const ts = reqData[key];
-          if (typeof ts === 'number' && ts > 0) {
+      for (const key of setKeys) {
+        switch (key) {
+          case 'deviceTime': {
+            const ts = reqData[key];
+            if (typeof ts === 'number' && ts > 0) {
+              try {
+                const { execSync } = require('child_process');
+                const date = new Date(ts);
+                const cmd = `powershell -WindowStyle Hidden -Command "Set-Date -Date '${date.toISOString()}'"`;
+                execSync(cmd, { timeout: 5000, encoding: 'utf-8', windowsHide: true });
+              } catch {
+                // 静默失败
+              }
+            }
+            result[key] = reqData[key];
+            break;
+          }
+
+          default: {
             try {
-              const { execSync } = require('child_process');
-              const date = new Date(ts);
-              const cmd = `powershell -Command "Set-Date -Date '${date.toISOString()}'"`;
-              execSync(cmd, { timeout: 5000, encoding: 'utf-8' });
-              console.log(`${bjt()} [MQTT] 系统时间已设置: ${date.toISOString()}`);
-            } catch (timeErr: any) {
-              console.log(`${bjt()} [MQTT] 设置系统时间失败（忽略）: ${timeErr.message}`);
+              const { updateDeviceAttrs } = await import('./db-device-attrs');
+              if (key === 'passportVer') {
+                await updateDeviceAttrs({ passportVer: reqData[key] });
+              } else if (key === 'model') {
+                await updateDeviceAttrs({ model: reqData[key] });
+              } else if (key === 'doorModel') {
+                await updateDeviceAttrs({ doorModel: reqData[key] });
+              } else if (key === 'passRulerList') {
+                await updateDeviceAttrs({ passRulerList: reqData[key] });
+              } else if (key === 'warnRulerList') {
+                await updateDeviceAttrs({ warnRulerList: reqData[key] });
+              }
+            } catch {
+              // 静默失败
             }
+            result[key] = reqData[key];
+            break;
           }
-          result[key] = reqData[key];
-          break;
-        }
-
-        default: {
-          // 其他字段全部存数据库
-          try {
-            const { updateDeviceAttrs } = await import('./db-device-attrs');
-            if (key === 'passportVer') {
-              await updateDeviceAttrs({ passportVer: reqData[key] });
-            } else if (key === 'model') {
-              await updateDeviceAttrs({ model: reqData[key] });
-            } else if (key === 'doorModel') {
-              await updateDeviceAttrs({ doorModel: reqData[key] });
-            } else if (key === 'passRulerList') {
-              await updateDeviceAttrs({ passRulerList: reqData[key] });
-            } else if (key === 'warnRulerList') {
-              await updateDeviceAttrs({ warnRulerList: reqData[key] });
-            }
-          } catch (dbErr: any) {
-            console.log(`${bjt()} [MQTT] 字段 ${key} 存储失败（忽略）: ${dbErr.message}`);
-          }
-          result[key] = reqData[key];
-          break;
         }
       }
+    } catch (err) {
+      // 兜底：即使处理过程有异常，也保证 result 可用
+      console.error(`${bjt()} [MQTT] attr-set 处理异常（但仍返回 200）:`, err);
     }
 
-    // 永远返回成功
+    // finally 语义：不管上面发生什么都一定发送 200 响应
     const responsePayload = {
       time: Date.now(),
       requestId: message.requestId,
@@ -957,8 +986,12 @@ async function handleMessage(topic: string, payload: Buffer): Promise<void> {
       }
     };
 
-    await publishUpstream(deviceId, 'attr-set', responsePayload);
-    console.log(`${bjt()} [MQTT] attr-set 响应已发送: code=200`);
+    try {
+      await publishUpstream(deviceId, 'attr-set', responsePayload);
+    } catch (err) {
+      // 网络断开等情况，无法发送
+      console.error(`${bjt()} [MQTT] attr-set 响应发送失败:`, err);
+    }
 
     return; // 不走队列处理
   }
@@ -1173,6 +1206,31 @@ function saveReplyLog(topic: string, payload: object): void {
     cleanupReplyLogs(logDir, 5);
   } catch (error: any) {
     console.error(`[MQTT] ❌ 保存响应日志失败: ${error.message}`);
+  }
+}
+
+/**
+ * 保存收到的 attr-set 请求日志
+ */
+function saveAttrSetRequest(message: any): void {
+  const logDir = join(process.env.DATA_DIR || process.cwd(), 'mqtt-log-reply');
+  const fileName = `attr-set-req_${Date.now()}.json`;
+  const filePath = join(logDir, fileName);
+
+  try {
+    if (!existsSync(logDir)) {
+      mkdirSync(logDir, { recursive: true });
+    }
+
+    const logData = {
+      receiveTime: new Date().toISOString(),
+      message: message
+    };
+
+    writeFileSync(filePath, JSON.stringify(logData, null, 2), 'utf-8');
+    console.log(`[MQTT] 📥 attr-set 请求日志已保存: ${fileName}`);
+  } catch {
+    // 静默失败
   }
 }
 

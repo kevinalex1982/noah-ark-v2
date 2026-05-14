@@ -33,14 +33,17 @@ export async function POST(request: Request) {
     console.log(`[IrisVerify] 加密后 identityId: ${encryptedIdentityId}`);
 
     // 验证用户是否存在
-    const userData = await findByUserCode(encryptedIdentityId);
-    if (!userData) {
+    const result = await findByUserCode(encryptedIdentityId);
+    if (!result.success) {
+      const message = result.reason === 'IDENTITY_NOT_FOUND' ? '用户不存在' : result.reason;
       return NextResponse.json({
         success: false,
         match: false,
-        message: '用户不存在',
+        message,
       });
     }
+
+    const userData = result.data;
 
     // 遍历设备返回的记录，用加密后的值比对
     let matched = false;

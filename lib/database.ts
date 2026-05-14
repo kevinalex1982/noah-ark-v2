@@ -110,6 +110,15 @@ async function initTables(database: Client): Promise<void> {
     // 列已存在，忽略错误
   }
 
+  // 添加 start_time / end_time 列（如果不存在）
+  // 用于存储 IAMS 下发的凭证有效期（毫秒时间戳）
+  try {
+    await database.execute(`ALTER TABLE credentials ADD COLUMN start_time BIGINT`);
+  } catch (e: any) {}
+  try {
+    await database.execute(`ALTER TABLE credentials ADD COLUMN end_time BIGINT`);
+  } catch (e: any) {}
+
   // device_config 表（设备配置）
   await database.execute(`
     CREATE TABLE IF NOT EXISTS device_config (
@@ -251,25 +260,49 @@ export function saveDatabase(): void {
 /**
  * 根据用户编码（person_id）查询用户信息
  * auth_type_list 取所有凭证行的并集，避免 LIMIT 1 随机取到不完整配置
+ *
+ * 返回结构：
+ * - { success: true, data: { ... } } — 用户存在且凭证有效
+ * - { success: false, reason: 'IDENTITY_NOT_FOUND' } — 用户不存在
+ * - { success: false, reason: '凭证未生效' | '凭证已失效' | '凭证未生效（有效期未设置）' } — 凭证有效期校验失败
  */
 export async function findByUserCode(userCode: string): Promise<{
-  personId: string;
-  personName: string;
-  authTypeList: number[];
-  authModel: number;
-  credentialId: number;
-} | null> {
+  success: true;
+  data: {
+    personId: string;
+    personName: string;
+    authTypeList: number[];
+    authModel: number;
+    credentialId: number;
+  };
+} | {
+  success: false;
+  reason: string;
+}> {
   const database = getDatabase();
 
-  // 基本信息 + credential_id 取第一条
+  // 基本信息 + credential_id + 有效期 取第一条
   const infoResult = await database.execute({
-    sql: 'SELECT person_id, person_name, auth_model, credential_id FROM credentials WHERE person_id = ? AND enable = 1 LIMIT 1',
+    sql: 'SELECT person_id, person_name, auth_model, credential_id, start_time, end_time FROM credentials WHERE person_id = ? AND enable = 1 LIMIT 1',
     args: [userCode]
   });
 
-  if (infoResult.rows.length === 0) return null;
+  if (infoResult.rows.length === 0) {
+    return { success: false, reason: 'IDENTITY_NOT_FOUND' };
+  }
 
   const row = infoResult.rows[0];
+
+  // 检查凭证有效期
+  const { isCredentialValid } = await import('./db-credentials');
+  const validityCheck = isCredentialValid({
+    start_time: (row.start_time as number) ?? null,
+    end_time: (row.end_time as number) ?? null,
+  });
+  if (!validityCheck.valid) {
+    console.log(`[Database] findByUserCode 凭证无效: ${validityCheck.reason}`);
+    return { success: false, reason: validityCheck.reason };
+  }
 
   // auth_type_list = 所有凭证行的并集
   const allAuthTypesResult = await database.execute({
@@ -295,10 +328,13 @@ export async function findByUserCode(userCode: string): Promise<{
   const authTypeList = mergedAuthTypeSet.size > 0 ? Array.from(mergedAuthTypeSet) : actualTypes;
 
   return {
-    personId: row.person_id as string,
-    personName: row.person_name as string,
-    authTypeList,
-    authModel: (row.auth_model as number) ?? 1,
-    credentialId: (row.credential_id as number) ?? 0,
+    success: true,
+    data: {
+      personId: row.person_id as string,
+      personName: row.person_name as string,
+      authTypeList,
+      authModel: (row.auth_model as number) ?? 1,
+      credentialId: (row.credential_id as number) ?? 0,
+    },
   };
 }

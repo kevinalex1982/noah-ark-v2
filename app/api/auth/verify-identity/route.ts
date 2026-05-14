@@ -35,19 +35,23 @@ export async function GET(request: Request) {
     const queryId = isAesEnabled() ? aesEncrypt(identityId.trim()) : identityId.trim();
 
     // 从数据库查询用户编码
-    const userData = await findByUserCode(queryId);
+    const result = await findByUserCode(queryId);
 
-    if (!userData) {
-      // 用户编码不存在
+    if (!result.success) {
+      const message = result.reason === 'IDENTITY_NOT_FOUND'
+        ? '库中无此用户编码信息'
+        : result.reason;
       return NextResponse.json(
         {
           success: false,
-          message: '库中无此用户编码信息',
-          code: 'IDENTITY_NOT_FOUND'
+          message,
+          code: result.reason === 'IDENTITY_NOT_FOUND' ? 'IDENTITY_NOT_FOUND' : 'CREDENTIAL_INVALID',
         },
         { status: 404 }
       );
     }
+
+    const userData = result.data;
 
     // 用户编码存在，返回用户信息
     return NextResponse.json({

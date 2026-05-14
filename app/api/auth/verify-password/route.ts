@@ -7,7 +7,7 @@
 
 import { NextResponse } from 'next/server';
 import { initDatabase } from '@/lib/database';
-import { getCredentialsByPersonId } from '@/lib/db-credentials';
+import { getCredentialsByPersonId, isCredentialValid } from '@/lib/db-credentials';
 import { sendWarnEvent } from '@/lib/mqtt-client';
 import { isAesEnabled } from '@/lib/settings';
 import { aesEncrypt } from '@/lib/crypto';
@@ -37,6 +37,15 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { success: false, message: '用户不存在' },
         { status: 404 }
+      );
+    }
+
+    // 检查凭证有效期
+    const validityCheck = isCredentialValid(credentials[0]);
+    if (!validityCheck.valid) {
+      return NextResponse.json(
+        { success: false, message: validityCheck.reason },
+        { status: 403 }
       );
     }
 

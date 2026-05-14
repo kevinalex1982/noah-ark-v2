@@ -7,6 +7,40 @@ import { getDatabase } from './database';
 
 export type CredentialType = 1 | 5 | 7 | 8 | 9; // 1=人脸，5=密码，7=虹膜，8=掌纹，9=胁迫码
 
+/**
+ * 判断凭证是否在有效期内
+ * 规则：
+ * - start_time 或 end_time 任一为空或为0 → 未生效
+ * - 当前时间 < start_time → 未生效
+ * - 当前时间 > end_time → 已失效
+ * - 其他情况 → 有效
+ */
+export function isCredentialValid(credential: { start_time: number | null; end_time: number | null }): { valid: boolean; reason: string } {
+  const now = Date.now();
+  const startTime = credential.start_time;
+  const endTime = credential.end_time;
+
+  // 任一为空或为0 → 未生效
+  if (!startTime || startTime === 0) {
+    return { valid: false, reason: '凭证未生效（有效期未设置）' };
+  }
+  if (!endTime || endTime === 0) {
+    return { valid: false, reason: '凭证未生效（有效期未设置）' };
+  }
+
+  // 当前时间未到起始时间
+  if (now < startTime) {
+    return { valid: false, reason: '凭证未生效' };
+  }
+
+  // 当前时间已过结束时间
+  if (now > endTime) {
+    return { valid: false, reason: '凭证已失效' };
+  }
+
+  return { valid: true, reason: '' };
+}
+
 export interface Credential {
   id: number;
   person_id: string;        // 用户编码
@@ -25,6 +59,8 @@ export interface Credential {
   box_list: string | null;
   custom_id: string | null;  // 自定义ID（掌纹设备的userId等）
   iris_data_path: string | null;  // 虹膜数据加密文件路径（按需下发）
+  start_time: number | null;  // 凭证有效期开始时间（IAMS startTime，毫秒时间戳）
+  end_time: number | null;    // 凭证有效期结束时间（IAMS endTime，毫秒时间戳）
   enable: number;
   created_at: string;
   updated_at: string;
@@ -51,6 +87,8 @@ export async function upsertCredential(data: {
   box_list?: string;
   custom_id?: string;  // 自定义ID（掌纹设备的userId等）
   iris_data_path?: string;  // 虹膜数据加密文件路径
+  start_time?: number | null;  // 凭证有效期开始
+  end_time?: number | null;    // 凭证有效期结束
   enable?: number;     // 启用状态
 }): Promise<Credential> {
   const db = getDatabase();
@@ -81,6 +119,8 @@ export async function upsertCredential(data: {
         box_list = ?,
         custom_id = ?,
         iris_data_path = ?,
+        start_time = ?,
+        end_time = ?,
         enable = ?,
         updated_at = ?
       WHERE credential_id = ?`,
@@ -100,6 +140,8 @@ export async function upsertCredential(data: {
         data.box_list || null,
         data.custom_id || null,
         data.iris_data_path || null,
+        data.start_time ?? null,
+        data.end_time ?? null,
         data.enable ?? 1,
         now,
         data.credential_id
@@ -113,9 +155,10 @@ export async function upsertCredential(data: {
       sql: `INSERT INTO credentials (
         person_id, person_name, person_type, credential_id, type,
         content, iris_left_image, iris_right_image, palm_feature, show_info, tags,
-        auth_model, auth_type_list, box_list, custom_id, iris_data_path, enable,
+        auth_model, auth_type_list, box_list, custom_id, iris_data_path,
+        start_time, end_time, enable,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       args: [
         data.person_id,
         data.person_name,
@@ -133,6 +176,8 @@ export async function upsertCredential(data: {
         data.box_list || null,
         data.custom_id || null,
         data.iris_data_path || null,
+        data.start_time ?? null,
+        data.end_time ?? null,
         data.enable ?? 1,
         now,
         now
@@ -148,7 +193,7 @@ export async function upsertCredential(data: {
  * 这些大字段只用于写入，读取场景（存在性检查、类型查询、验证比对）不需要加载
  * verify-password 需要 content 字段比对密码，需传 includeContent: true
  */
-const LIGHT_COLUMNS = 'id, person_id, person_name, person_type, credential_id, type, show_info, tags, auth_model, auth_type_list, box_list, custom_id, iris_data_path, enable, created_at, updated_at';
+const LIGHT_COLUMNS = 'id, person_id, person_name, person_type, credential_id, type, show_info, tags, auth_model, auth_type_list, box_list, custom_id, iris_data_path, start_time, end_time, enable, created_at, updated_at';
 
 /**
  * 通过 credential_id 查询凭证
@@ -398,6 +443,8 @@ export async function updateCredentialAttributes(
     auth_model?: number;
     auth_type_list?: string;
     box_list?: string;
+    start_time?: number | null;
+    end_time?: number | null;
   }
 ): Promise<boolean> {
   const db = getDatabase();
@@ -429,6 +476,14 @@ export async function updateCredentialAttributes(
   if (attributes.box_list !== undefined) {
     updates.push('box_list = ?');
     args.push(attributes.box_list);
+  }
+  if (attributes.start_time !== undefined) {
+    updates.push('start_time = ?');
+    args.push(attributes.start_time);
+  }
+  if (attributes.end_time !== undefined) {
+    updates.push('end_time = ?');
+    args.push(attributes.end_time);
   }
 
   if (updates.length === 0) {
@@ -490,6 +545,8 @@ function rowToCredential(row: Record<string, any>): Credential {
     box_list: row.box_list as string | null,
     custom_id: row.custom_id as string | null,
     iris_data_path: row.iris_data_path as string | null,
+    start_time: (row.start_time as number) ?? null,
+    end_time: (row.end_time as number) ?? null,
     enable: row.enable as number,
     created_at: row.created_at as string,
     updated_at: row.updated_at as string,

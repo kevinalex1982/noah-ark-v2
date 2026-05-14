@@ -90,6 +90,27 @@ function httpRequest(
 }
 
 /**
+ * 虹膜设备统一请求入口：所有发往虹膜设备的 HTTP 请求都走这里，
+ * 自动通过全局队列串行化，保证 1500ms 最小间隔。
+ * @param endpoint 设备地址（如 http://192.168.3.202:9003）
+ * @param path 接口路径（如 /memberSave）
+ * @param body 请求体
+ * @param timeout 超时时间（毫秒）
+ */
+export function irisRequest(
+  endpoint: string,
+  path: string,
+  body?: object,
+  timeout: number = 15000
+): Promise<any> {
+  return enqueueIrisCommand(
+    path,
+    () => httpRequest(endpoint, path, body, timeout),
+    IRIS_COMMAND_INTERVAL_MS
+  );
+}
+
+/**
  * 从 content 字段解析虹膜图片
  * 新格式：content 字段用 |==BMP-SEP==| 分隔左右眼，没有分隔符则只有左眼
  */
@@ -427,10 +448,59 @@ const IRIS_COOLDOWN_MS = 10000; // 冷却时间 10 秒
 // 10 秒后自动清除
 const irisPersonLock = new Map<string, NodeJS.Timeout>();
 
-// 虹膜设备指令间隔锁：所有发往虹膜设备的指令必须间隔 ≥1000ms
-// 给设备足够时间消化上一条指令，避免并发请求导致崩溃
-const IRIS_COMMAND_INTERVAL_MS = 1000;
+// ============================================================
+// 虹膜设备全局命令队列
+// 所有发往虹膜设备的请求都走这里，保证同一时间只有一条请求在飞
+// 默认指令间隔 1500ms（全局统一常量）
+// ============================================================
+const IRIS_COMMAND_INTERVAL_MS = 1500;
 let irisLastCommandTime = 0;
+
+interface IrisQueueItem {
+  fn: () => Promise<any>;
+  resolve: (value: any) => void;
+  reject: (reason: any) => void;
+  label: string;  // 用于日志追踪
+}
+
+let irisCommandQueue: IrisQueueItem[] = [];
+let irisQueueProcessing = false;
+
+async function processIrisCommandQueue(intervalMs: number = IRIS_COMMAND_INTERVAL_MS): Promise<void> {
+  if (irisCommandQueue.length === 0) {
+    irisQueueProcessing = false;
+    return;
+  }
+  irisQueueProcessing = true;
+  const item = irisCommandQueue.shift()!;
+  try {
+    const result = await item.fn();
+    item.resolve(result);
+  } catch (e) {
+    item.reject(e);
+  }
+  // 请求间间隔
+  if (intervalMs > 0 && irisCommandQueue.length > 0) {
+    await new Promise(resolve => setTimeout(resolve, intervalMs));
+  }
+  processIrisCommandQueue(intervalMs);
+}
+
+/**
+ * 将命令加入虹膜设备全局队列，确保同一时间只有一条请求在执行
+ * @param label 命令标签（用于日志追踪）
+ * @param fn 要执行的命令函数
+ * @param intervalMs 执行完此命令后到下一条命令的间隔（毫秒），默认 IRIS_COMMAND_INTERVAL_MS (1500ms)
+ */
+export function enqueueIrisCommand<T>(label: string, fn: () => Promise<T>, intervalMs: number = IRIS_COMMAND_INTERVAL_MS): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    irisCommandQueue.push({ fn: fn as () => Promise<any>, resolve, reject, label });
+    console.log(`[IrisQueue] 入队: ${label}（队列长度: ${irisCommandQueue.length}）`);
+    if (!irisQueueProcessing) {
+      processIrisCommandQueue(intervalMs);
+    }
+  });
+}
 
 /**
  * 发送虹膜设备指令前调用，确保与上一条指令间隔 ≥300ms
@@ -528,7 +598,7 @@ export async function uploadIrisToDevice(
   }
 
   await irisCommandGuard();
-  const responseData: any = await httpRequest(endpoint, '/memberSave', requestData, IRIS_MEMBER_SAVE_TIMEOUT);
+  const responseData: any = await irisRequest(endpoint, '/memberSave', requestData, IRIS_MEMBER_SAVE_TIMEOUT);
   console.log(`[DeviceSync] 响应：${JSON.stringify(responseData)}`);
 
   if (responseData.errorCode === 0 || responseData.errorCode === '0') {
@@ -566,7 +636,7 @@ export async function setIrisDeviceSaveState(
     const maxRetries = 3;
     while (true) {
       await irisCommandGuard();
-      const responseData: any = await httpRequest(endpoint, '/memberSaveState', requestData, IRIS_DEVICE_CONFIG.timeout);
+      const responseData: any = await irisRequest(endpoint, '/memberSaveState', requestData, IRIS_DEVICE_CONFIG.timeout);
       console.log(`[DeviceSync] memberSaveState 响应: ${JSON.stringify(responseData)}`);
 
       if (responseData.errorCode === 0 || responseData.errorCode === '0') {
@@ -661,7 +731,7 @@ export async function syncToIrisDeviceWithoutLock(
 
     // 直接上传人员（不锁定）
     await irisCommandGuard();
-    const responseData: any = await httpRequest(endpoint, '/memberSave', requestData, IRIS_MEMBER_SAVE_TIMEOUT);
+    const responseData: any = await irisRequest(endpoint, '/memberSave', requestData, IRIS_MEMBER_SAVE_TIMEOUT);
     console.log(`[DeviceSync] 响应：${JSON.stringify(responseData)}`);
 
     if (responseData.errorCode === 0 || responseData.errorCode === '0') {
@@ -795,7 +865,7 @@ export async function syncToIrisDevice(
 
       let responseData: any;
       try {
-        responseData = await httpRequest(endpoint, '/memberSave', requestData, IRIS_MEMBER_SAVE_TIMEOUT);
+        responseData = await irisRequest(endpoint, '/memberSave', requestData, IRIS_MEMBER_SAVE_TIMEOUT);
         console.log(`[${beijingTime()}] [设备] 上传完成: errorCode=${responseData.errorCode}`);
 
         // errorCode=97 = 设备未初始化完成，重试
@@ -897,7 +967,7 @@ export async function deleteFromIrisDevice(
     console.log(`[${beijingTime()}] [DeviceSync] Request: ${JSON.stringify(requestData)}`);
 
     await irisCommandGuard();
-    const responseData: any = await httpRequest(endpoint, '/memberDelete', requestData, IRIS_DEVICE_CONFIG.timeout);
+    const responseData: any = await irisRequest(endpoint, '/memberDelete', requestData, IRIS_DEVICE_CONFIG.timeout);
     console.log(`[${beijingTime()}] [DeviceSync] 响应：${JSON.stringify(responseData)}`);
 
     // errorCode=0 成功，errorCode=16 人员不存在也算成功（目标状态已达成）
@@ -937,7 +1007,7 @@ export async function getIrisDeviceMembers(
     console.log(`[DeviceSync] 获取虹膜设备人员列表`);
 
     await irisCommandGuard();
-    const responseData: any = await httpRequest(endpoint, '/members', requestData, IRIS_DEVICE_CONFIG.timeout);
+    const responseData: any = await irisRequest(endpoint, '/members', requestData, IRIS_DEVICE_CONFIG.timeout);
     console.log(`[DeviceSync] 响应：${JSON.stringify(responseData).substring(0, 200)}...`);
 
     if (responseData.errorCode === 0 || responseData.errorCode === '0') {
@@ -1219,7 +1289,7 @@ export async function checkDeviceStatus(
       }
     } else {
       // 虹膜设备：使用 members 接口测试（httpRequest 避免 fetch keep-alive 问题）
-      const responseData: any = await httpRequest(deviceEndpoint, '/members', { count: 1, key: '', lastStaffNumDec: '', needImages: 0 }, 3000);
+      const responseData: any = await irisRequest(deviceEndpoint, '/members', { count: 1, key: '', lastStaffNumDec: '', needImages: 0 }, 3000);
       if (responseData.errorCode === 0 || responseData.errorCode === '0') {
         return { online: true, type, endpoint: deviceEndpoint, message: '设备在线' };
       } else {
@@ -1510,26 +1580,37 @@ export async function handlePassportAdd(
     authTypeList?: number[];
     authModel?: number;      // 1=单凭证, 820=组合认证
     action?: string;
+    startTime?: number;      // IAMS 凭证有效期开始
+    endTime?: number;        // IAMS 凭证有效期结束
   }
-): Promise<{ success: boolean; response?: string; error?: string; code?: number }> {
+): Promise<{ success: boolean; response?: string; error?: string; code?: number; skipResponse?: boolean }> {
   const isIris = payload.credentialType === 7;
   const isPalm = payload.credentialType === 8;
 
   console.log(`[MQTT-Handler] 处理凭证新增: ${isIris ? '虹膜' : isPalm ? '掌纹' : '其他'}, personId=${payload.personId}`);
 
-  // ⚠️ 检查凭证是否已存在
+  // ⚠️ 检查凭证是否已存在，根据入库时间决定响应策略
   const { getCredentialById } = await import('./db-credentials');
   const existingCredential = await getCredentialById(payload.credentialId);
   if (existingCredential) {
-    console.log(`[MQTT-Handler] 凭证已存在: credentialId=${payload.credentialId}，更新属性字段`);
-    // 凭证已存在，更新 auth_type_list、auth_model 等属性
-    const { updateCredentialAttributes } = await import('./db-credentials');
-    await updateCredentialAttributes(payload.credentialId, {
-      auth_type_list: payload.authTypeList?.join(','),
-      auth_model: payload.authModel,
-      show_info: payload.content ? undefined : (existingCredential.show_info || undefined), // 保留已有值
-    });
-    return { success: true, response: '凭证已存在，属性已更新', code: 200 };
+    const createdAt = new Date(existingCredential.created_at).getTime();
+    const elapsed = Date.now() - createdAt;
+    const fiveMin = 5 * 60 * 1000;
+    const oneHour = 60 * 60 * 1000;
+
+    if (elapsed < fiveMin) {
+      // 5 分钟内：IAMS 快速重试，跳过回复
+      console.log(`[MQTT-Handler] 凭证已存在(${elapsed}ms < 5min)，跳过回复`);
+      return { success: true, response: '凭证已存在，跳过回复', skipResponse: true };
+    } else if (elapsed < oneHour) {
+      // 5 分钟~1 小时：回复 405 凭证已存在
+      console.log(`[MQTT-Handler] 凭证已存在(${elapsed}ms，5min~1h)，返回 405`);
+      return { success: true, response: '凭证已经存在', code: 405 };
+    } else {
+      // 超过 1 小时：正常返回成功
+      console.log(`[MQTT-Handler] 凭证已存在(${elapsed}ms > 1h)，返回 200`);
+      return { success: true, response: '成功', code: 200 };
+    }
   }
 
   // 从 content 解析虹膜数据（虹膜数据必须在 content 中）
@@ -1592,6 +1673,8 @@ export async function handlePassportAdd(
         auth_type_list: payload.authTypeList?.join(',') || String(payload.credentialType),
         auth_model: payload.authModel,
         iris_data_path: dataPath,
+        start_time: payload.startTime ?? null,
+        end_time: payload.endTime ?? null,
       });
 
       // 3. 从虹膜设备删除刚才上传的数据（确保设备不保留人员）
@@ -1632,6 +1715,8 @@ export async function handlePassportAdd(
         auth_type_list: payload.authTypeList?.join(','),
         custom_id: userId,  // 存储掌纹设备上的userId
         auth_model: payload.authModel,
+        start_time: payload.startTime ?? null,
+        end_time: payload.endTime ?? null,
       });
     } else {
       console.log('[MQTT-Handler] 设备添加失败，不保存数据库');
@@ -1649,6 +1734,8 @@ export async function handlePassportAdd(
       content: payload.content,
       auth_type_list: payload.authTypeList?.join(','),
       auth_model: payload.authModel,
+      start_time: payload.startTime ?? null,
+      end_time: payload.endTime ?? null,
     });
     return { success: true, response: '已保存到数据库' };
   }
@@ -1672,6 +1759,8 @@ export async function handlePassportUpdate(
     authModel?: number;
     authTypeList?: number[];
     boxList?: string;
+    startTime?: number;
+    endTime?: number;
   }
 ): Promise<{ success: boolean; response?: string; error?: string }> {
   console.log(`[MQTT-Handler] 处理凭证更新（只更新数据库属性）: credentialId=${payload.credentialId}`);
@@ -1693,6 +1782,8 @@ export async function handlePassportUpdate(
     auth_model: payload.authModel,
     auth_type_list: payload.authTypeList?.join(',') || undefined,
     box_list: payload.boxList,
+    start_time: payload.startTime ?? undefined,
+    end_time: payload.endTime ?? undefined,
   });
 
   console.log(`[MQTT-Handler] ✅ 凭证属性更新成功`);

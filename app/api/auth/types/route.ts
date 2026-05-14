@@ -30,18 +30,23 @@ export async function GET(request: Request) {
     const queryId = isAesEnabled() ? aesEncrypt(identityId.trim()) : identityId.trim();
 
     // 从数据库查询用户编码
-    const userData = await findByUserCode(queryId);
+    const findResult = await findByUserCode(queryId);
 
-    if (!userData) {
+    if (!findResult.success) {
+      const message = findResult.reason === 'IDENTITY_NOT_FOUND'
+        ? '库中无此用户编码信息'
+        : findResult.reason;
       return NextResponse.json(
         {
           success: false,
-          message: '库中无此用户编码信息',
-          code: 'IDENTITY_NOT_FOUND'
+          message,
+          code: findResult.reason === 'IDENTITY_NOT_FOUND' ? 'IDENTITY_NOT_FOUND' : 'CREDENTIAL_INVALID',
         },
         { status: 404 }
       );
     }
+
+    const userData = findResult.data;
 
     // 查询该用户实际存在的凭证类型
     const db = getDatabase();
@@ -90,6 +95,7 @@ export async function GET(request: Request) {
     console.log(`  - 实际凭证类型: ${actualCredentialTypes.join(',')}`);
     console.log(`  - 有效认证类型: ${validAuthTypes.join(',')}`);
     console.log(`  - 有胁迫码: ${hasDuressCode}`);
+    console.log(`  - irisCredentialId: ${irisCredentialId}, irisDataPath: ${irisDataPath}`);
 
     return NextResponse.json({
       success: true,

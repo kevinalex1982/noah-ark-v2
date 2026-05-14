@@ -33,6 +33,8 @@ interface Credential {
   auth_type_list: string | null;
   box_list: string | null;
   enable: number;
+  start_time: number | null;
+  end_time: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -200,6 +202,22 @@ function DetailModal({ isOpen, credential, onClose }: DetailModalProps) {
             <div>
               <label className="block text-sm text-gray-500 mb-1">更新时间</label>
               <div className="text-sm bg-gray-50 p-2 rounded">{new Date(credential.updated_at).toLocaleString('zh-CN')}</div>
+            </div>
+          </div>
+
+          {/* 有效期 */}
+          <div className="grid grid-cols-2 gap-4 pt-4 border-t">
+            <div>
+              <label className="block text-sm text-gray-500 mb-1">有效期开始</label>
+              <div className="text-sm bg-gray-50 p-2 rounded">
+                {credential.start_time ? new Date(credential.start_time).toLocaleString('zh-CN') : '-'}
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm text-gray-500 mb-1">有效期结束</label>
+              <div className="text-sm bg-gray-50 p-2 rounded">
+                {credential.end_time ? new Date(credential.end_time).toLocaleString('zh-CN') : '-'}
+              </div>
             </div>
           </div>
         </div>
