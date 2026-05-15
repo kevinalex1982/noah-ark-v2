@@ -37,6 +37,9 @@
   ],
   "exclude": [
     "node_modules",
-    "skills"
+    "skills",
+    "scripts",
+    "electron/release",
+    "electron/dist"
   ]
 }

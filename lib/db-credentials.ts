@@ -189,11 +189,11 @@ export async function upsertCredential(data: {
 }
 
 /**
- * 查询时排除 content、iris_left_image、iris_right_image、palm_feature 等大字段
- * 这些大字段只用于写入，读取场景（存在性检查、类型查询、验证比对）不需要加载
+ * 查询时排除 iris_left_image、iris_right_image、palm_feature 等图片/特征大字段
+ * content 字段对密码/胁迫码是短文本，虹膜 content 已清理为 null，不影响性能
  * verify-password 需要 content 字段比对密码，需传 includeContent: true
  */
-const LIGHT_COLUMNS = 'id, person_id, person_name, person_type, credential_id, type, show_info, tags, auth_model, auth_type_list, box_list, custom_id, iris_data_path, start_time, end_time, enable, created_at, updated_at';
+const LIGHT_COLUMNS = 'id, person_id, person_name, person_type, credential_id, type, content, show_info, tags, auth_model, auth_type_list, box_list, custom_id, iris_data_path, start_time, end_time, enable, created_at, updated_at';
 
 /**
  * 通过 credential_id 查询凭证
