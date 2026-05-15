@@ -77,18 +77,26 @@ export async function POST(request: NextRequest) {
           payload,
           max_retries: 3,
         });
-        
-        // 立即尝试同步
-        const syncResult = await manualSyncItem(queueId);
-        
-        return NextResponse.json({
-          success: syncResult.success,
-          mode: 'add-item',
-          queueId,
-          messageId,
-          message: syncResult.message,
-          timestamp: new Date().toISOString(),
-        });
+
+        if (queueId !== null) {
+          // 立即尝试同步
+          const syncResult = await manualSyncItem(queueId);
+
+          return NextResponse.json({
+            success: syncResult.success,
+            mode: 'add-item',
+            queueId,
+            messageId,
+            message: syncResult.message,
+            timestamp: new Date().toISOString(),
+          });
+        } else {
+          return NextResponse.json({
+            success: false,
+            error: '队列积压，已丢弃',
+            timestamp: new Date().toISOString(),
+          }, { status: 429 });
+        }
       }
       
       default:

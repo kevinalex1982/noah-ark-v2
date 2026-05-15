@@ -87,6 +87,7 @@ export async function initSyncTables(): Promise<void> {
 /**
  * 添加同步队列项
  * 如果相同 credential_id 已存在且状态为 retrying，则更新而非新增
+ * ⚠️ IAMS 下发的 passport 操作最多保留 10 条 pending/processing 记录，超出直接丢弃
  */
 export async function addToSyncQueue(item: {
   message_id: string;
@@ -95,9 +96,23 @@ export async function addToSyncQueue(item: {
   action: string;
   payload: object;
   max_retries?: number;
-}): Promise<number> {
+}): Promise<number | null> {
   const db = getDatabase();
   const now = new Date().toISOString();
+
+  // ⚠️ IAMS passport 操作限流：pending/processing 超过 10 条直接丢弃
+  const isPassportOp = item.action === 'passport-add' || item.action === 'passport-update' || item.action === 'passport-del';
+  if (isPassportOp) {
+    const countResult = await db.execute({
+      sql: `SELECT COUNT(*) as count FROM sync_queue WHERE action IN ('passport-add', 'passport-update', 'passport-del') AND status IN ('pending', 'processing')`,
+      args: []
+    });
+    const pendingCount = countResult.rows[0]?.count as number || 0;
+    if (pendingCount >= 10) {
+      console.log(`[SyncQueue] ⚠️ IAMS 队列已积压(${pendingCount}条)，丢弃: ${item.action} credential_id=${item.credential_id}`);
+      return null;
+    }
+  }
 
   // 如果有 credential_id，检查是否已存在
   if (item.credential_id) {

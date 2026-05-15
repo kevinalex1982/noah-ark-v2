@@ -260,6 +260,11 @@ async function processMessage(
     },
   }) : 0;
 
+  // ⚠️ IAMS 队列积压时丢弃消息，不处理也不响应
+  if (needSyncLog && queueId === null) {
+    return { success: true, response: '队列积压，已丢弃', skipResponse: true };
+  }
+
   if (needSyncLog) {
     console.log(`${bjt()} [MQTT] 记录: queueId=${queueId}, op=${op}, credentialId=${data.id}`);
   }
@@ -354,7 +359,7 @@ async function processMessage(
   const durationMs = Date.now() - startTime;
 
   // ⚠️ 密码/胁迫码不进下发记录，只有虹膜/掌纹才进
-  if (needSyncLog) {
+  if (needSyncLog && queueId !== null) {
     if (result.success) {
       await updateQueueStatus(queueId, 'success');
       await addSyncLog({
@@ -1037,16 +1042,18 @@ async function handleMessage(topic: string, payload: Buffer): Promise<void> {
           const irisResult = await clearIrisDevice(irisDevice.endpoint);
           console.log(`${bjt()} [虹膜] 清空完成: 删除${irisResult.deleted}个, 失败${irisResult.failed}个`);
 
-          await updateQueueStatus(irisQueueId, irisResult.success ? 'success' : 'failed');
-          await addSyncLog({
-            queue_id: irisQueueId,
-            device_id: irisDevice.device_id,
-            device_type: 'iris',
-            action: 'reset-passport',
-            status: irisResult.success ? 'success' : 'failed',
-            response: irisResult.success ? `已清空${irisResult.deleted}个用户` : JSON.stringify(irisResult.errors),
-            duration_ms: 0,
-          });
+          if (irisQueueId !== null) {
+            await updateQueueStatus(irisQueueId, irisResult.success ? 'success' : 'failed');
+            await addSyncLog({
+              queue_id: irisQueueId,
+              device_id: irisDevice.device_id,
+              device_type: 'iris',
+              action: 'reset-passport',
+              status: irisResult.success ? 'success' : 'failed',
+              response: irisResult.success ? `已清空${irisResult.deleted}个用户` : JSON.stringify(irisResult.errors),
+              duration_ms: 0,
+            });
+          }
         } catch (e: any) {
           console.error(`${bjt()} [虹膜] 清空异常: ${e.message}`);
         }
@@ -1070,16 +1077,18 @@ async function handleMessage(topic: string, payload: Buffer): Promise<void> {
           const palmResult = await clearPalmDevice(palmDevice.endpoint);
           console.log(`${bjt()} [掌纹] 清空完成: ${palmResult.success ? '成功' : '失败'}`);
 
-          await updateQueueStatus(palmQueueId, palmResult.success ? 'success' : 'failed');
-          await addSyncLog({
-            queue_id: palmQueueId,
-            device_id: palmDevice.device_id,
-            device_type: 'palm',
-            action: 'reset-passport',
-            status: palmResult.success ? 'success' : 'failed',
-            response: palmResult.success ? '已清空' : JSON.stringify(palmResult.errors),
-            duration_ms: 0,
-          });
+          if (palmQueueId !== null) {
+            await updateQueueStatus(palmQueueId, palmResult.success ? 'success' : 'failed');
+            await addSyncLog({
+              queue_id: palmQueueId,
+              device_id: palmDevice.device_id,
+              device_type: 'palm',
+              action: 'reset-passport',
+              status: palmResult.success ? 'success' : 'failed',
+              response: palmResult.success ? '已清空' : JSON.stringify(palmResult.errors),
+              duration_ms: 0,
+            });
+          }
         } catch (e: any) {
           console.error(`${bjt()} [掌纹] 清空异常: ${e.message}`);
         }

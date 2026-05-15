@@ -277,6 +277,10 @@ export async function POST() {
                   faceImage: getSampleFaceImage(),
                 },
               });
+              if (queueId === null) {
+                console.log('[SimulateIAMS] ⚠️ 队列项被丢弃');
+                return;
+              }
 
               // 立即更新为成功
               await updateQueueStatus(queueId, 'success');
@@ -317,16 +321,18 @@ export async function POST() {
                 },
               });
 
-              // 记录同步日志
-              await addSyncLog({
-                queue_id: queueId,
-                device_id: irisDevice.device_id,
-                device_type: 'iris',
-                action: 'sync_iris',
-                status: 'failed',
-                error_message: result.error,
-                duration_ms: durationMs,
-              });
+              if (queueId !== null) {
+                // 记录同步日志
+                await addSyncLog({
+                  queue_id: queueId,
+                  device_id: irisDevice.device_id,
+                  device_type: 'iris',
+                  action: 'sync_iris',
+                  status: 'failed',
+                  error_message: result.error,
+                  duration_ms: durationMs,
+                });
+              }
 
               results.push({
                 personName: realIrisUserName,
@@ -352,15 +358,17 @@ export async function POST() {
               },
             });
 
-            await addSyncLog({
-              queue_id: queueId,
-              device_id: irisDevice.device_id,
-              device_type: 'iris',
-              action: 'sync_iris',
-              status: 'failed',
-              error_message: error.message,
-              duration_ms: Date.now() - startTime,
-            });
+            if (queueId !== null) {
+              await addSyncLog({
+                queue_id: queueId,
+                device_id: irisDevice.device_id,
+                device_type: 'iris',
+                action: 'sync_iris',
+                status: 'failed',
+                error_message: error.message,
+                duration_ms: Date.now() - startTime,
+              });
+            }
 
             results.push({
               personName: realIrisUserName,
@@ -471,11 +479,11 @@ export async function POST() {
               });
 
               // 立即更新为成功
-              await updateQueueStatus(queueId, 'success');
+              await updateQueueStatus(queueId!, 'success');
 
               // 记录成功日志
               await addSyncLog({
-                queue_id: queueId,
+                queue_id: queueId!,
                 device_id: palmDevice.device_id,
                 device_type: 'palm',
                 action: 'sync_palm',
@@ -505,16 +513,18 @@ export async function POST() {
                 },
               });
 
-              // 记录同步日志
-              await addSyncLog({
-                queue_id: queueId,
-                device_id: palmDevice.device_id,
-                device_type: 'palm',
-                action: 'sync_palm',
-                status: 'failed',
-                error_message: result.error,
-                duration_ms: durationMs,
-              });
+              if (queueId !== null) {
+                // 记录同步日志
+                await addSyncLog({
+                  queue_id: queueId,
+                  device_id: palmDevice.device_id,
+                  device_type: 'palm',
+                  action: 'sync_palm',
+                  status: 'failed',
+                  error_message: result.error,
+                  duration_ms: durationMs,
+                });
+              }
 
               results.push({
                 personName: realPalmUserId,
@@ -536,15 +546,17 @@ export async function POST() {
               },
             });
 
-            await addSyncLog({
-              queue_id: queueId,
-              device_id: palmDevice.device_id,
-              device_type: 'palm',
-              action: 'sync_palm',
-              status: 'failed',
-              error_message: error.message,
-              duration_ms: Date.now() - startTime,
-            });
+            if (queueId !== null) {
+              await addSyncLog({
+                queue_id: queueId,
+                device_id: palmDevice.device_id,
+                device_type: 'palm',
+                action: 'sync_palm',
+                status: 'failed',
+                error_message: error.message,
+                duration_ms: Date.now() - startTime,
+              });
+            }
 
             results.push({
               personName: realPalmUserId,
