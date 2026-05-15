@@ -587,7 +587,7 @@ export async function uploadIrisToDevice(
     purview: payload.purview || 30,
     purviewEndTime: 0.0,
     purviewStartTime: 0.0,
-    singleIrisAllowed: payload.singleIrisAllowed ?? 0,
+    singleIrisAllowed: payload.singleIrisAllowed ?? 1,
   };
 
   if (!skipDebugLog) {
@@ -720,7 +720,7 @@ export async function syncToIrisDeviceWithoutLock(
       purview: payload.purview || 30,
       purviewEndTime: 0.0,
       purviewStartTime: 0.0,
-      singleIrisAllowed: payload.singleIrisAllowed ?? 0,
+      singleIrisAllowed: payload.singleIrisAllowed ?? 1,
     };
 
     console.log(`[DeviceSync] 下发虹膜特征(无锁定)到 ${endpoint}`);
@@ -819,7 +819,7 @@ export async function syncToIrisDevice(
       purview: payload.purview || 30,
       purviewEndTime: 0.0,
       purviewStartTime: 0.0,
-      singleIrisAllowed: 0,
+      singleIrisAllowed: 1,
     };
 
     // 保存最后一次虹膜下发 payload 到文件，方便 Postman 测试

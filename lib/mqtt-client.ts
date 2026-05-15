@@ -7,7 +7,7 @@
 
 import mqtt, { MqttClient } from 'mqtt';
 import { getDeviceConfigs, initSyncTables, addToSyncQueue, addSyncLog, updateQueueStatus } from './sync-queue';
-import { handlePassportAdd, handlePassportUpdate, handlePassportDelete, clearIrisDevice, clearPalmDevice } from './device-sync';
+import { handlePassportAdd, handlePassportUpdate, handlePassportDelete, clearIrisDevice, clearPalmDevice, getIrisDeviceLockState } from './device-sync';
 import { getMqttBroker, getMqttUsername, getMqttPassword, getDeviceId } from './settings';
 import { getDeviceAttrs, updateDeviceAttrs, clearPassportVer } from './db-device-attrs';
 import { clearAllCredentials, upsertCredential, updateCredentialAttributes, getCredentialById, deleteCredential } from './db-credentials';
@@ -442,8 +442,8 @@ async function recordMqttEvent(deviceId: string, op: string, message: any, crede
     // 如果没有传入 credentialType，尝试从 message 或 data 中获取
     let credType = credentialType || data.type || message.credentialType || 0;
 
-    // 如果是删除操作且没有类型，尝试从数据库查询
-    if (!credType && (op === 'passport-del' || op === 'passport-update') && data.id) {
+    // 如果还没有类型，尝试从数据库查询（passport-del/update/add 都可能需要）
+    if (!credType && data.id) {
       const { getCredentialById } = await import('./db-credentials');
       const cred = await getCredentialById(data.id);
       if (cred) {
@@ -889,6 +889,15 @@ async function handleMessage(topic: string, payload: Buffer): Promise<void> {
 
   // 校验通过，使用 topicDeviceId 作为 deviceId（和 myDeviceId 一致）
   const deviceId = topicDeviceId;
+
+  // ⚠️ 识别期间丢弃所有凭证消息：设备 unlocked = 正在识别中
+  // 此时 IAMS 下发的 passport-add/update/del 如果处理会重新锁定设备，打断识别
+  // IAMS 会持续重试，识别完成后再处理
+  const isCredentialOp = action === 'passport-add' || action === 'passport-update' || action === 'passport-del';
+  if (isCredentialOp && getIrisDeviceLockState() === 'unlocked') {
+    console.log(`${bjt()} [MQTT] ⚠️ 设备正在识别中，丢弃凭证消息: ${action}`);
+    return;
+  }
 
   // 🧪 模拟IAMS响应：收到上行 pass-log 消息，自动回复成功响应
   if (direction === 'up' && action === 'pass-log') {
