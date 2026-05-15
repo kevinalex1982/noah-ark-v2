@@ -494,6 +494,12 @@ async function processIrisCommandQueue(intervalMs: number = IRIS_COMMAND_INTERVA
  */
 export function enqueueIrisCommand<T>(label: string, fn: () => Promise<T>, intervalMs: number = IRIS_COMMAND_INTERVAL_MS): Promise<T> {
   return new Promise<T>((resolve, reject) => {
+    // 队列超过 500 条时整体清空，防止内存泄漏
+    if (irisCommandQueue.length >= 500) {
+      console.log(`[IrisQueue] ⚠️ 队列溢出(${irisCommandQueue.length}条)，清空后重新入队: ${label}`);
+      irisCommandQueue.forEach(item => item.reject(new Error('队列溢出，已清空')));
+      irisCommandQueue = [];
+    }
     irisCommandQueue.push({ fn: fn as () => Promise<any>, resolve, reject, label });
     console.log(`[IrisQueue] 入队: ${label}（队列长度: ${irisCommandQueue.length}）`);
     if (!irisQueueProcessing) {
