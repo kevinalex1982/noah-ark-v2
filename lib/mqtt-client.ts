@@ -210,6 +210,18 @@ async function processMessage(
   let irisRightImage = '';
 
   if (data.type === 7 && data.content) {
+    // ⚠️ 单眼虹膜拦截：没有分隔符或右边为空，直接返回 401
+    if (op === 'passport-add') {
+      const SEPARATOR = '|==BMP-SEP==|';
+      if (!data.content.includes(SEPARATOR)) {
+        return { success: false, error: '虹膜只有单眼特征', code: 401 };
+      }
+      const parts = data.content.split(SEPARATOR);
+      if (!parts[1] || parts[1].trim() === '') {
+        return { success: false, error: '虹膜只有单眼特征', code: 401 };
+      }
+    }
+
     const irisData = parseIrisContent(data.content);
     irisLeftImage = irisData.leftIris;
     irisRightImage = irisData.rightIris;
