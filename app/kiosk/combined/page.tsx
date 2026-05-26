@@ -242,7 +242,11 @@ function CombinedContent() {
     await new Promise(resolve => setTimeout(resolve, 3000));
     if (!pollingRef.current) { console.log('[组合虹膜] 延迟期间被停止'); return; }
 
-    console.log('[组合虹膜] 延迟结束，setScanStatus(scanning)');
+    // 固定时间窗口：整个轮询期间使用相同的 startTime 和 endTime
+    // 这样设备端即使写入延迟，只要记录落入窗口内就能被捕获
+    const fixedStartTime = Date.now() - 3000;
+    const fixedEndTime = fixedStartTime + 60000; // 60秒窗口
+    console.log(`[组合虹膜] 延迟结束，固定时间窗口 startTime=${fixedStartTime}, endTime=${fixedEndTime}`);
     setScanStatus('scanning');
 
     const startTime = Date.now();
@@ -256,8 +260,8 @@ function CombinedContent() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            startTime: Date.now() - 6000, // 6秒时间窗口，确保与上次有重叠
-            endTime: Date.now(),
+            startTime: fixedStartTime,
+            endTime: fixedEndTime,
             count: 10,
             lastCreateTime: 0,
           }),
@@ -446,6 +450,8 @@ function CombinedContent() {
     if (!currentStep) return;
     console.log('[组合认证·polling useEffect] currentStep:', currentStep, 'completedSteps:', completedSteps, 'scanStatus:', scanStatus);
     if (currentStep === 'iris' && !completedSteps.includes('iris')) {
+      console.log('[组合认证·DEBUG·iris入口] userInfo:', JSON.stringify(userInfo));
+      console.log('[组合认证·DEBUG·iris入口] userInfoRef.current:', JSON.stringify(userInfoRef.current));
       console.log('[组合认证·polling useEffect] 预加载虹膜数据...');
       const credentialId = userInfo?.irisCredentialId;
       const dataPath = userInfo?.irisDataPath;

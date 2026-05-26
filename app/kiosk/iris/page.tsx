@@ -30,7 +30,6 @@ function IrisContent() {
   countdownRef.current = countdown;
 
   const POLL_INTERVAL = 3000; // 3秒
-  const POLL_LOOKBACK = 6000; // 6秒时间窗口，确保与上次轮询有重叠
 
   const stopPolling = useCallback(() => {
     pollingRef.current = false;
@@ -115,6 +114,11 @@ function IrisContent() {
     // 等待1秒后开始查询
     await new Promise(resolve => setTimeout(resolve, 1000));
 
+    // 固定时间窗口：整个轮询期间使用相同的 startTime 和 endTime
+    const fixedStartTime = Date.now() - 1000;
+    const fixedEndTime = fixedStartTime + 60000; // 60秒窗口
+    console.log(`[虹膜] 固定时间窗口 startTime=${fixedStartTime}, endTime=${fixedEndTime}`);
+
     while (pollingRef.current && Date.now() - startTime < timeoutMs) {
       if (!pollingRef.current) break;
 
@@ -124,8 +128,8 @@ function IrisContent() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            startTime: Date.now() - POLL_LOOKBACK,
-            endTime: Date.now(),
+            startTime: fixedStartTime,
+            endTime: fixedEndTime,
             count: 10,
             lastCreateTime: 0,
           }),
@@ -285,7 +289,7 @@ function IrisContent() {
             fetch('/api/device/iris/cleanup', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ credentialId: userInfo.irisCredentialId }),
+              body: JSON.stringify({ credentialId: userInfoRef.current.irisCredentialId }),
             }).catch(() => {});
           }
           setStatus('timeout');
@@ -306,7 +310,7 @@ function IrisContent() {
       fetch('/api/device/iris/cleanup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ credentialId: userInfo.irisCredentialId }),
+        body: JSON.stringify({ credentialId: userInfoRef.current.irisCredentialId }),
       }).catch(() => {});
     }
     setStatus('waiting');
@@ -321,7 +325,7 @@ function IrisContent() {
       fetch('/api/device/iris/cleanup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ credentialId: userInfo.irisCredentialId }),
+        body: JSON.stringify({ credentialId: userInfoRef.current.irisCredentialId }),
       }).catch(() => {});
     }
     router.push(`/kiosk/select?identityId=${encodeURIComponent(identityId)}`);
