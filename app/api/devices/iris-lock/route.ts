@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { initDatabase } from '@/lib/database';
 import { getDeviceConfigs } from '@/lib/sync-queue';
-import * as http from 'http';
+import { irisRequest } from '@/lib/device-sync';
 
 export async function POST(request: NextRequest) {
   try {
@@ -39,29 +39,7 @@ export async function POST(request: NextRequest) {
 
     console.log(`[IrisLock] ${state === 1 ? '锁定' : '解锁'}虹膜设备, ip: ${deviceIp}`);
 
-    const responseData: any = await new Promise((resolve, reject) => {
-      const url = new URL(device.endpoint + '/memberSaveState');
-      const postData = JSON.stringify({ ip: deviceIp, state });
-      const req = http.request({
-        hostname: url.hostname,
-        port: url.port || 80,
-        path: url.pathname,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(postData) },
-        agent: false,
-        timeout: 30000,
-      }, (res) => {
-        let data = '';
-        res.on('data', chunk => data += chunk);
-        res.on('end', () => {
-          try { resolve(JSON.parse(data)); } catch { resolve({ errorCode: -1, errorInfo: '解析失败: ' + data }); }
-        });
-      });
-      req.on('error', reject);
-      req.on('timeout', () => { req.destroy(); reject(new Error('请求超时')); });
-      req.write(postData);
-      req.end();
-    });
+    const responseData: any = await irisRequest(device.endpoint, '/memberSaveState', { ip: deviceIp, state }, 30000);
     console.log(`[IrisLock] 响应: ${JSON.stringify(responseData)}`);
 
     if (responseData.errorCode === 0 || responseData.errorCode === '0') {

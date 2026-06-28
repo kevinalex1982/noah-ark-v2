@@ -62,14 +62,10 @@ export default function SettingsPage() {
   const [irisMembersResult, setIrisMembersResult] = useState<{ success: boolean; message: string; count?: number; logs?: string[] } | null>(null);
   const [testingIrisProvision, setTestingIrisProvision] = useState(false);
   const [irisProvisionResult, setIrisProvisionResult] = useState<{ success: boolean; message: string; logs?: string[] } | null>(null);
-  const [provisioningFromExisting, setProvisioningFromExisting] = useState(false);
-  const [provisionFromExistingResult, setProvisionFromExistingResult] = useState<{ success: boolean; message: string; logs?: string[] } | null>(null);
-  const [testingIrisProvision1, setTestingIrisProvision1] = useState(false);
-  const [irisProvisionResult1, setIrisProvisionResult1] = useState<{ success: boolean; message: string; logs?: string[] } | null>(null);
-  const [testingIrisProvision2, setTestingIrisProvision2] = useState(false);
-  const [irisProvisionResult2, setIrisProvisionResult2] = useState<{ success: boolean; message: string; logs?: string[] } | null>(null);
-  const [testingIrisProvision3, setTestingIrisProvision3] = useState(false);
-  const [irisProvisionResult3, setIrisProvisionResult3] = useState<{ success: boolean; message: string; logs?: string[] } | null>(null);
+  const [irisDiagInterval, setIrisDiagInterval] = useState(1500);
+  const [testingIrisDiagGuard, setTestingIrisDiagGuard] = useState(false);
+  const [testingIrisDiagQueue, setTestingIrisDiagQueue] = useState(false);
+  const [irisDiagResult, setIrisDiagResult] = useState<{ success: boolean; message: string; mode?: string; logFile?: string; logs?: string[] } | null>(null);
   const [restartingBackend, setRestartingBackend] = useState(false);
   const [clearingCache, setClearingCache] = useState(false);
   const [version, setVersion] = useState('');
@@ -332,32 +328,6 @@ export default function SettingsPage() {
     }
   };
 
-  // 获取虹膜设备成员（保存到本地用于测试）
-  const handleFetchIrisMembers = async () => {
-    setFetchingIrisMembers(true);
-    setIrisMembersResult(null);
-    try {
-      const response = await fetch('/api/device/iris/members', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ count: 100, needImages: true }),
-      });
-      const data = await response.json();
-      setIrisMembersResult({
-        success: data.success,
-        message: data.success
-          ? `获取到 ${data.count} 个成员，图像格式: ${data.format}，已保存到 ${data.savePath || '本地'}`
-          : data.error || '获取失败',
-        count: data.count,
-        logs: data.logs,
-      });
-    } catch (error: any) {
-      setIrisMembersResult({ success: false, message: error.message });
-    } finally {
-      setFetchingIrisMembers(false);
-    }
-  };
-
   // 虹膜完整下发测试（模拟 IAMS passport-add 完整流程）
   const handleTestIrisProvision = async () => {
     setTestingIrisProvision(true);
@@ -386,71 +356,62 @@ export default function SettingsPage() {
     }
   };
 
-  // 用已有虹膜数据下发凭证（从 device_members.json 中选择成员下发）
-  const handleProvisionFromExisting = async () => {
-    setProvisioningFromExisting(true);
-    setProvisionFromExistingResult(null);
+  // 虹膜并发诊断测试
+  const handleIrisDiagnostics = async (mode: 'guard' | 'queue') => {
+    if (mode === 'guard') {
+      setTestingIrisDiagGuard(true);
+    } else {
+      setTestingIrisDiagQueue(true);
+    }
+    setIrisDiagResult(null);
     try {
-      const response = await fetch('/api/device/iris/provision-from-existing', {
+      const response = await fetch('/api/device/iris/diagnostics', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode, intervalMs: irisDiagInterval }),
       });
       const data = await response.json();
-      setProvisionFromExistingResult({
+      setIrisDiagResult({
         success: data.success,
         message: data.success
-          ? `下发成功！credentialId=${data.credentialId}, 密码凭证=${data.passwordCredentialId}, ${data.personName}(${data.personId})`
-          : data.error || '下发失败',
+          ? `${mode === 'guard' ? 'Guard' : 'Queue'} 模式测试完成（日志: ${data.logFile || '无'}）`
+          : data.error || '测试失败',
+        mode,
+        logFile: data.logFile,
         logs: data.logs,
       });
-      if (data.success) {
-        addToast({ type: 'success', title: '虹膜凭证下发成功', message: `人员: ${data.personName}` });
-      }
     } catch (error: any) {
-      setProvisionFromExistingResult({ success: false, message: error.message });
-      addToast({ type: 'error', title: '虹膜凭证下发异常', message: error.message });
+      setIrisDiagResult({ success: false, message: error.message, mode });
     } finally {
-      setProvisioningFromExisting(false);
+      setTestingIrisDiagGuard(false);
+      setTestingIrisDiagQueue(false);
     }
   };
 
-  // 测试下发 1: iris_user_123_full_20260317_214108.json
-  const handleTestIrisProvision1 = async () => {
-    setTestingIrisProvision1(true);
-    setIrisProvisionResult1(null);
+  // 获取虹膜设备成员（保存到本地用于测试）
+  const handleFetchIrisMembers = async () => {
+    setFetchingIrisMembers(true);
+    setIrisMembersResult(null);
     try {
-      const response = await fetch('/api/device/iris/test-provision-1', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+      const response = await fetch('/api/device/iris/members', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ count: 100, needImages: true }),
+      });
       const data = await response.json();
-      setIrisProvisionResult1({ success: data.success, message: data.success ? `下发成功！errorCode=${data.errorCode}` : data.error || '下发失败', logs: data.logs });
+      setIrisMembersResult({
+        success: data.success,
+        message: data.success
+          ? `获取到 ${data.count} 个成员，图像格式: ${data.format}，已保存到 ${data.savePath || '本地'}`
+          : data.error || '获取失败',
+        count: data.count,
+        logs: data.logs,
+      });
     } catch (error: any) {
-      setIrisProvisionResult1({ success: false, message: error.message });
-    } finally { setTestingIrisProvision1(false); }
-  };
-
-  // 测试下发 2: iris_data.json
-  const handleTestIrisProvision2 = async () => {
-    setTestingIrisProvision2(true);
-    setIrisProvisionResult2(null);
-    try {
-      const response = await fetch('/api/device/iris/test-provision-2', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
-      const data = await response.json();
-      setIrisProvisionResult2({ success: data.success, message: data.success ? `下发成功！errorCode=${data.errorCode}` : data.error || '下发失败', logs: data.logs });
-    } catch (error: any) {
-      setIrisProvisionResult2({ success: false, message: error.message });
-    } finally { setTestingIrisProvision2(false); }
-  };
-
-  // 测试下发 3: iris_user_123_simple_20260317_214108.json
-  const handleTestIrisProvision3 = async () => {
-    setTestingIrisProvision3(true);
-    setIrisProvisionResult3(null);
-    try {
-      const response = await fetch('/api/device/iris/test-provision-3', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
-      const data = await response.json();
-      setIrisProvisionResult3({ success: data.success, message: data.success ? `下发成功！errorCode=${data.errorCode}` : data.error || '下发失败', logs: data.logs });
-    } catch (error: any) {
-      setIrisProvisionResult3({ success: false, message: error.message });
-    } finally { setTestingIrisProvision3(false); }
+      setIrisMembersResult({ success: false, message: error.message });
+    } finally {
+      setFetchingIrisMembers(false);
+    }
   };
 
   // 重启后台服务
@@ -884,6 +845,141 @@ export default function SettingsPage() {
                   )}
                 </div>
 
+                {/* 虹膜完整下发测试 */}
+                <div className="py-4 border-b">
+                  <label className="block text-sm font-medium text-gray-700">
+                    虹膜完整下发测试
+                  </label>
+                  <p className="mt-1 text-sm text-gray-500 mb-4">
+                    模拟 IAMS 下发 passport-add 完整流程：上传到设备 → 加密保存到本地 → 从设备删除。用于生成正式版的虹膜数据文件
+                  </p>
+                  <button
+                    onClick={handleTestIrisProvision}
+                    disabled={testingIrisProvision}
+                    className="px-6 py-3 bg-violet-600 text-white rounded-lg font-medium hover:bg-violet-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all duration-200 flex items-center space-x-2"
+                  >
+                    {testingIrisProvision ? (
+                      <>
+                        <svg className="animate-spin -ml-1 mr-2 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <span>下发中...</span>
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                        </svg>
+                        <span>虹膜完整下发测试</span>
+                      </>
+                    )}
+                  </button>
+                  {irisProvisionResult && (
+                    <div className={`mt-4 rounded-lg text-sm ${irisProvisionResult.success ? 'bg-violet-50 border border-violet-200 text-violet-800' : 'bg-red-50 border border-red-200 text-red-800'}`}>
+                      <div className="p-3">
+                        <div className="font-bold">{irisProvisionResult.success ? '✅ 下发成功' : '❌ 下发失败'}</div>
+                        <div>{irisProvisionResult.message}</div>
+                      </div>
+                      {irisProvisionResult.logs && irisProvisionResult.logs.length > 0 && (
+                        <div className="border-t border-violet-200 bg-white rounded-b-lg">
+                          <div className="px-3 py-2 text-xs font-bold text-gray-500">执行日志：</div>
+                          <pre className="px-3 pb-3 text-xs bg-gray-900 text-green-300 rounded-b-lg overflow-x-auto max-h-60 whitespace-pre-wrap">
+                            {irisProvisionResult.logs.join('\n')}
+                          </pre>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* 虹膜设备并发诊断测试 */}
+                <div className="py-4 border-b">
+                  <label className="block text-sm font-medium text-gray-700">
+                    虹膜设备并发诊断测试
+                  </label>
+                  <p className="mt-1 text-sm text-gray-500 mb-4">
+                    检测并发请求是否会导致虹膜设备崩溃。<b>Guard 模式</b>：用 Promise.all 同时发起查询+锁定，观察设备反应。<b>Queue 模式</b>：所有请求通过队列串行执行。可调整指令间隔（默认 1500ms）
+                  </p>
+                  <div className="flex items-center gap-4 mb-4">
+                    <div className="flex items-center gap-2">
+                      <label className="text-sm text-gray-600">指令间隔：</label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="5000"
+                        step="100"
+                        value={irisDiagInterval}
+                        onChange={(e) => setIrisDiagInterval(parseInt(e.target.value) || 0)}
+                        className="w-20 px-2 py-1 border border-gray-300 rounded text-center text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                      <span className="text-sm text-gray-500">ms</span>
+                    </div>
+                  </div>
+                  <div className="flex gap-4">
+                    <button
+                      onClick={() => handleIrisDiagnostics('guard')}
+                      disabled={testingIrisDiagGuard}
+                      className="px-6 py-3 bg-orange-600 text-white rounded-lg font-medium hover:bg-orange-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all duration-200 flex items-center space-x-2"
+                    >
+                      {testingIrisDiagGuard ? (
+                        <>
+                          <svg className="animate-spin -ml-1 mr-2 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          <span>测试中...</span>
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                          </svg>
+                          <span>Guard 并发测试</span>
+                        </>
+                      )}
+                    </button>
+                    <button
+                      onClick={() => handleIrisDiagnostics('queue')}
+                      disabled={testingIrisDiagQueue}
+                      className="px-6 py-3 bg-teal-600 text-white rounded-lg font-medium hover:bg-teal-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all duration-200 flex items-center space-x-2"
+                    >
+                      {testingIrisDiagQueue ? (
+                        <>
+                          <svg className="animate-spin -ml-1 mr-2 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          <span>测试中...</span>
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                          </svg>
+                          <span>Queue 并发测试</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                  {irisDiagResult && (
+                    <div className={`mt-4 rounded-lg text-sm ${irisDiagResult.success ? 'bg-teal-50 border border-teal-200 text-teal-800' : 'bg-red-50 border border-red-200 text-red-800'}`}>
+                      <div className="p-3">
+                        <div className="font-bold">{irisDiagResult.success ? '✅ 测试完成' : '❌ 测试失败'}</div>
+                        <div>{irisDiagResult.message}</div>
+                      </div>
+                      {irisDiagResult.logs && irisDiagResult.logs.length > 0 && (
+                        <div className="border-t border-teal-200 bg-white rounded-b-lg">
+                          <div className="px-3 py-2 text-xs font-bold text-gray-500">执行日志：</div>
+                          <pre className="px-3 pb-3 text-xs bg-gray-900 text-green-300 rounded-b-lg overflow-x-auto max-h-60 whitespace-pre-wrap">
+                            {irisDiagResult.logs.join('\n')}
+                          </pre>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
                 {/* 获取虹膜设备成员 */}
                 <div className="py-4 border-b">
                   <label className="block text-sm font-medium text-gray-700">
@@ -926,162 +1022,6 @@ export default function SettingsPage() {
                           <pre className="px-3 pb-3 text-xs bg-gray-900 text-green-300 rounded-b-lg overflow-x-auto max-h-60 whitespace-pre-wrap">
                             {irisMembersResult.logs.join('\n')}
                           </pre>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* 虹膜完整下发测试 */}
-                <div className="py-4 border-b">
-                  <label className="block text-sm font-medium text-gray-700">
-                    虹膜完整下发测试
-                  </label>
-                  <p className="mt-1 text-sm text-gray-500 mb-4">
-                    模拟 IAMS passport-add 完整流程：检查并清空设备上现有人员 → 读取 test_member.json → 锁定→上传→删除设备数据 → 加密存储 → 入库(type=7) → 添加密码凭证(type=5, 编码11112222)。需先点击"获取虹膜设备成员"下载测试数据
-                  </p>
-                  <button
-                    onClick={handleTestIrisProvision}
-                    disabled={testingIrisProvision}
-                    className="px-6 py-3 bg-orange-600 text-white rounded-lg font-medium hover:bg-orange-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all duration-200 flex items-center space-x-2"
-                  >
-                    {testingIrisProvision ? (
-                      <>
-                        <svg className="animate-spin -ml-1 mr-2 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                        <span>下发中...</span>
-                      </>
-                    ) : (
-                      <>
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        <span>虹膜完整下发测试</span>
-                      </>
-                    )}
-                  </button>
-                  {irisProvisionResult && (
-                    <div className={`mt-4 rounded-lg text-sm ${irisProvisionResult.success ? 'bg-orange-50 border border-orange-200 text-orange-800' : 'bg-red-50 border border-red-200 text-red-800'}`}>
-                      <div className="p-3">
-                        <div className="font-bold">{irisProvisionResult.success ? '下发成功' : '下发失败'}</div>
-                        <div>{irisProvisionResult.message}</div>
-                      </div>
-                      {irisProvisionResult.logs && irisProvisionResult.logs.length > 0 && (
-                        <div className="border-t border-orange-200 bg-white rounded-b-lg">
-                          <div className="px-3 py-2 text-xs font-bold text-gray-500">执行日志：</div>
-                          <pre className="px-3 pb-3 text-xs bg-gray-900 text-green-300 rounded-b-lg overflow-x-auto max-h-60 whitespace-pre-wrap">
-                            {irisProvisionResult.logs.join('\n')}
-                          </pre>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* 用已有虹膜数据下发凭证 */}
-                <div className="py-4 border-b">
-                  <label className="block text-sm font-medium text-gray-700">
-                    用已有虹膜数据下发凭证
-                  </label>
-                  <p className="mt-1 text-sm text-gray-500 mb-4">
-                    从 <code className="bg-gray-100 px-1 rounded">data/iris_test_members/device_members.json</code> 中选取第一个成员，组织成完整凭证下发到虹膜设备。流程：清空设备 → 锁定→上传→加密存储→入库(type=7)→添加密码凭证(type=5)→删除设备数据。用于用自己的虹膜做后续测试
-                  </p>
-                  <button
-                    onClick={handleProvisionFromExisting}
-                    disabled={provisioningFromExisting}
-                    className="px-6 py-3 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all duration-200 flex items-center space-x-2"
-                  >
-                    {provisioningFromExisting ? (
-                      <>
-                        <svg className="animate-spin -ml-1 mr-2 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                        <span>下发中...</span>
-                      </>
-                    ) : (
-                      <>
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m0 0l4 4" />
-                        </svg>
-                        <span>用已有虹膜数据下发凭证</span>
-                      </>
-                    )}
-                  </button>
-                  {provisionFromExistingResult && (
-                    <div className={`mt-4 rounded-lg text-sm ${provisionFromExistingResult.success ? 'bg-purple-50 border border-purple-200 text-purple-800' : 'bg-red-50 border border-red-200 text-red-800'}`}>
-                      <div className="p-3">
-                        <div className="font-bold">{provisionFromExistingResult.success ? '下发成功' : '下发失败'}</div>
-                        <div>{provisionFromExistingResult.message}</div>
-                      </div>
-                      {provisionFromExistingResult.logs && provisionFromExistingResult.logs.length > 0 && (
-                        <div className="border-t border-purple-200 bg-white rounded-b-lg">
-                          <div className="px-3 py-2 text-xs font-bold text-gray-500">执行日志：</div>
-                          <pre className="px-3 pb-3 text-xs bg-gray-900 text-green-300 rounded-b-lg overflow-x-auto max-h-60 whitespace-pre-wrap">
-                            {provisionFromExistingResult.logs.join('\n')}
-                          </pre>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* 测试下发 1 */}
-                <div className="py-4 border-b">
-                  <label className="block text-sm font-medium text-gray-700">测试下发 1 (iris_user_123_full)</label>
-                  <p className="mt-1 text-sm text-gray-500 mb-4">使用 iris_user_123_full_20260317_214108.json 中的虹膜数据</p>
-                  <button onClick={handleTestIrisProvision1} disabled={testingIrisProvision1} className="px-6 py-3 bg-teal-600 text-white rounded-lg font-medium hover:bg-teal-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all duration-200 flex items-center space-x-2">
-                    {testingIrisProvision1 ? <><svg className="animate-spin -ml-1 mr-2 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg><span>下发中...</span></> : <><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg><span>测试下发 1</span></>}
-                  </button>
-                  {irisProvisionResult1 && (
-                    <div className={`mt-4 rounded-lg text-sm ${irisProvisionResult1.success ? 'bg-teal-50 border border-teal-200 text-teal-800' : 'bg-red-50 border border-red-200 text-red-800'}`}>
-                      <div className="p-3"><div className="font-bold">{irisProvisionResult1.success ? '下发成功' : '下发失败'}</div><div>{irisProvisionResult1.message}</div></div>
-                      {irisProvisionResult1.logs && irisProvisionResult1.logs.length > 0 && (
-                        <div className="border-t border-teal-200 bg-white rounded-b-lg">
-                          <div className="px-3 py-2 text-xs font-bold text-gray-500">执行日志：</div>
-                          <pre className="px-3 pb-3 text-xs bg-gray-900 text-green-300 rounded-b-lg overflow-x-auto max-h-60 whitespace-pre-wrap">{irisProvisionResult1.logs.join('\n')}</pre>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* 测试下发 2 */}
-                <div className="py-4 border-b">
-                  <label className="block text-sm font-medium text-gray-700">测试下发 2 (iris_data)</label>
-                  <p className="mt-1 text-sm text-gray-500 mb-4">使用 iris_data.json 中的虹膜数据</p>
-                  <button onClick={handleTestIrisProvision2} disabled={testingIrisProvision2} className="px-6 py-3 bg-teal-600 text-white rounded-lg font-medium hover:bg-teal-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all duration-200 flex items-center space-x-2">
-                    {testingIrisProvision2 ? <><svg className="animate-spin -ml-1 mr-2 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg><span>下发中...</span></> : <><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg><span>测试下发 2</span></>}
-                  </button>
-                  {irisProvisionResult2 && (
-                    <div className={`mt-4 rounded-lg text-sm ${irisProvisionResult2.success ? 'bg-teal-50 border border-teal-200 text-teal-800' : 'bg-red-50 border border-red-200 text-red-800'}`}>
-                      <div className="p-3"><div className="font-bold">{irisProvisionResult2.success ? '下发成功' : '下发失败'}</div><div>{irisProvisionResult2.message}</div></div>
-                      {irisProvisionResult2.logs && irisProvisionResult2.logs.length > 0 && (
-                        <div className="border-t border-teal-200 bg-white rounded-b-lg">
-                          <div className="px-3 py-2 text-xs font-bold text-gray-500">执行日志：</div>
-                          <pre className="px-3 pb-3 text-xs bg-gray-900 text-green-300 rounded-b-lg overflow-x-auto max-h-60 whitespace-pre-wrap">{irisProvisionResult2.logs.join('\n')}</pre>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* 测试下发 3 */}
-                <div className="py-4 border-b">
-                  <label className="block text-sm font-medium text-gray-700">测试下发 3 (iris_user_123_simple)</label>
-                  <p className="mt-1 text-sm text-gray-500 mb-4">使用 iris_user_123_simple_20260317_214108.json 中的虹膜数据</p>
-                  <button onClick={handleTestIrisProvision3} disabled={testingIrisProvision3} className="px-6 py-3 bg-teal-600 text-white rounded-lg font-medium hover:bg-teal-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all duration-200 flex items-center space-x-2">
-                    {testingIrisProvision3 ? <><svg className="animate-spin -ml-1 mr-2 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg><span>下发中...</span></> : <><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg><span>测试下发 3</span></>}
-                  </button>
-                  {irisProvisionResult3 && (
-                    <div className={`mt-4 rounded-lg text-sm ${irisProvisionResult3.success ? 'bg-teal-50 border border-teal-200 text-teal-800' : 'bg-red-50 border border-red-200 text-red-800'}`}>
-                      <div className="p-3"><div className="font-bold">{irisProvisionResult3.success ? '下发成功' : '下发失败'}</div><div>{irisProvisionResult3.message}</div></div>
-                      {irisProvisionResult3.logs && irisProvisionResult3.logs.length > 0 && (
-                        <div className="border-t border-teal-200 bg-white rounded-b-lg">
-                          <div className="px-3 py-2 text-xs font-bold text-gray-500">执行日志：</div>
-                          <pre className="px-3 pb-3 text-xs bg-gray-900 text-green-300 rounded-b-lg overflow-x-auto max-h-60 whitespace-pre-wrap">{irisProvisionResult3.logs.join('\n')}</pre>
                         </div>
                       )}
                     </div>

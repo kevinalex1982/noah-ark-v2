@@ -7,7 +7,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDeviceConfigs, updateDeviceStatus, DeviceConfig } from '@/lib/sync-queue';
 import { initDatabase } from '@/lib/database';
-import { getIrisDeviceLockState, isIrisDeviceIdle } from '@/lib/device-sync';
+import { isIrisDeviceIdle } from '@/lib/device-sync';
+import { irisRequest } from '@/lib/device-sync';
 import * as http from 'http';
 
 // 设备 API 端点配置
@@ -82,7 +83,7 @@ async function checkPalmDeviceHealth(endpoint: string): Promise<{
   }
 }
 
-// 检查虹膜设备状态（使用 http.request，避免 fetch keep-alive 问题）
+// 检查虹膜设备状态（通过统一队列）
 async function checkIrisDeviceHealth(endpoint: string): Promise<{
   online: boolean;
   responseTime?: number;
@@ -97,43 +98,13 @@ async function checkIrisDeviceHealth(endpoint: string): Promise<{
   }
 
   try {
-    const url = new URL(endpoint + '/members');
-    const postData = JSON.stringify({ count: 1, key: '', lastStaffNumDec: '', needImages: 0 });
-
-    return new Promise((resolve) => {
-      const req = http.request({
-        hostname: url.hostname,
-        port: url.port || 80,
-        path: url.pathname,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(postData) },
-        agent: false,
-        timeout: 5000,
-      }, (res) => {
-        let data = '';
-        res.on('data', chunk => data += chunk);
-        res.on('end', () => {
-          const responseTime = Date.now() - startTime;
-          try {
-            const json = JSON.parse(data);
-            if (json.errorCode === 0 || json.errorCode === '0') {
-              const userCount = json.body?.length || 0;
-              resolve({ online: true, responseTime, userCount });
-            } else {
-              resolve({ online: false, responseTime, error: `errorCode=${json.errorCode}` });
-            }
-          } catch {
-            resolve({ online: false, responseTime, error: 'JSON 解析失败' });
-          }
-        });
-      });
-
-      req.on('error', () => { resolve({ online: false, error: '连接失败' }); });
-      req.on('timeout', () => { req.destroy(); resolve({ online: false, error: '超时' }); });
-
-      req.write(postData);
-      req.end();
-    });
+    const json = await irisRequest(endpoint, '/members', { count: 1, key: '', lastStaffNumDec: '', needImages: 0 }, 5000);
+    const responseTime = Date.now() - startTime;
+    if (json.errorCode === 0 || json.errorCode === '0') {
+      const userCount = json.body?.length || 0;
+      return { online: true, responseTime, userCount };
+    }
+    return { online: false, responseTime, error: `errorCode=${json.errorCode}` };
   } catch (error) {
     return { online: false, error: error instanceof Error ? error.message : String(error) };
   }

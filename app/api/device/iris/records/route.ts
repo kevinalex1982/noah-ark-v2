@@ -6,33 +6,7 @@
 
 import { NextResponse } from 'next/server';
 import { getIrisEndpoint } from '@/lib/settings';
-import * as http from 'http';
-
-function httpRequest(endpoint: string, path: string, body: object, timeout: number = 10000): Promise<any> {
-  return new Promise((resolve, reject) => {
-    const url = new URL(endpoint + path);
-    const postData = JSON.stringify(body);
-    const req = http.request({
-      hostname: url.hostname,
-      port: url.port || 80,
-      path: url.pathname,
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(postData) },
-      agent: false,
-      timeout,
-    }, (res) => {
-      let data = '';
-      res.on('data', chunk => data += chunk);
-      res.on('end', () => {
-        try { resolve(JSON.parse(data)); } catch { resolve({ errorCode: -1, errorInfo: '解析失败' }); }
-      });
-    });
-    req.on('error', reject);
-    req.on('timeout', () => { req.destroy(); reject(new Error('请求超时')); });
-    req.write(postData);
-    req.end();
-  });
-}
+import { irisRequest } from '@/lib/device-sync';
 
 export async function POST(request: Request) {
   try {
@@ -53,7 +27,7 @@ export async function POST(request: Request) {
     };
 
     try {
-      const data: any = await httpRequest(endpoint, '/records', requestBody, 10000);
+      const data: any = await irisRequest(endpoint, '/records', requestBody, 10000);
       console.log(`[IrisProxy] 响应: errorCode=${data.errorCode}, 记录数=${data.body?.length || 0}`);
 
       return NextResponse.json({

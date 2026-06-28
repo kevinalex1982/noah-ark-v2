@@ -7,33 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { initDatabase } from '@/lib/database';
 import { getDeviceConfigs } from '@/lib/sync-queue';
-import * as http from 'http';
-
-function httpRequest(endpoint: string, path: string, body?: object, timeout: number = 10000): Promise<any> {
-  return new Promise((resolve, reject) => {
-    const url = new URL(endpoint + path);
-    const postData = body ? JSON.stringify(body) : '';
-    const req = http.request({
-      hostname: url.hostname,
-      port: url.port || 80,
-      path: url.pathname,
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(postData) },
-      agent: false,
-      timeout,
-    }, (res) => {
-      let data = '';
-      res.on('data', chunk => data += chunk);
-      res.on('end', () => {
-        try { resolve(JSON.parse(data)); } catch { resolve({ errorCode: -1, errorInfo: '解析失败: ' + data }); }
-      });
-    });
-    req.on('error', reject);
-    req.on('timeout', () => { req.destroy(); reject(new Error('请求超时')); });
-    if (postData) req.write(postData);
-    req.end();
-  });
-}
+import { irisRequest } from '@/lib/device-sync';
 
 /**
  * 获取虹膜设备完整参数
@@ -51,9 +25,7 @@ async function getIrisFullSettings(): Promise<{
     return { success: false, error: '未找到虹膜设备' };
   }
 
-  const url = `${irisDevice.endpoint}/settingsGet`;
-
-  const responseData: any = await httpRequest(irisDevice.endpoint, '/settingsGet', {}, 10000);
+  const responseData: any = await irisRequest(irisDevice.endpoint, '/settingsGet', {}, 10000);
 
   if (responseData.errorCode === 0 || responseData.errorCode === '0') {
     return {
@@ -153,9 +125,9 @@ export async function POST(request: NextRequest) {
     console.log('[IrisSettings] 新阈值:', fullBody.thresh);
 
     // 3. 发送设置请求
-    const url = `${getResult.endpoint}/settingsUpdate`;
+    const endpoint = getResult.endpoint!;
 
-    const responseData: any = await httpRequest(getResult.endpoint, '/settingsUpdate', {
+    const responseData: any = await irisRequest(endpoint, '/settingsUpdate', {
       deviceSN: fullBody.deviceSN,
       body: fullBody,
     }, 10000);

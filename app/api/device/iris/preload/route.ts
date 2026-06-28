@@ -29,12 +29,23 @@ export async function POST(request: NextRequest) {
 
     // 1. 查凭证获取文件路径
     const credential = await getCredentialById(credentialId);
+    console.log(`[IrisPreload·DEBUG] credentialId=${credentialId}`);
+    console.log(`[IrisPreload·DEBUG] 凭证查询结果:`, credential ? '存在' : '不存在');
+    if (credential) {
+      console.log(`[IrisPreload·DEBUG] credential.iris_data_path:`, credential.iris_data_path);
+    }
     if (!credential || !credential.iris_data_path) {
       return NextResponse.json({ success: false, error: '未找到虹膜数据路径' }, { status: 404 });
     }
 
     // 2. 读取并解密虹膜数据
+    console.log('[IrisPreload·DEBUG] 开始加载加密文件...');
     const irisData = loadIrisData(credentialId);
+    console.log('[IrisPreload·DEBUG] 文件加载结果:', irisData ? '成功' : '失败');
+    if (irisData) {
+      console.log('[IrisPreload·DEBUG] staffNum:', irisData.staffNum, 'memberName:', irisData.memberName);
+      console.log('[IrisPreload·DEBUG] leftImage长度:', irisData.irisLeftImage?.length || 0, 'rightImage长度:', irisData.irisRightImage?.length || 0);
+    }
 
     // 3. 找虹膜设备
     const devices = await getDeviceConfigs();

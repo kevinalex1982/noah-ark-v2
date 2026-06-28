@@ -7,12 +7,12 @@
  *
  * 轮巡间隔：
  * - 掌纹设备：15 秒（105 接口）
- * - 虹膜设备：30 秒（members 接口）
+ * - 虹膜设备：60 秒（members 接口）
  */
 
 import { getDeviceConfigs, DeviceConfig } from './sync-queue';
 import { initDatabase, getDatabase } from './database';
-import { getIrisDeviceLockState, isIrisDeviceIdle } from './device-sync';
+import { irisRequest, getIrisDeviceLockState, isIrisDeviceIdle } from './device-sync';
 import http from 'http';
 
 // 设备缓存 - 使用 globalThis 防止 Next.js 热重载导致重复实例
@@ -24,7 +24,7 @@ interface DeviceCache {
 }
 
 const PALM_INTERVAL = 15000;  // 15 秒
-const IRIS_INTERVAL = 30000;  // 30 秒
+const IRIS_INTERVAL = 60000;  // 60 秒
 
 // 使用 globalThis 保持热重载之间的状态
 function getState() {
@@ -88,85 +88,35 @@ async function checkPalmDevice(endpoint: string): Promise<{ online: boolean; cou
 }
 
 /**
- * 虹膜设备 members 接口（使用 http.request，避免 fetch keep-alive 问题）
+ * 虹膜设备 members 接口（通过统一队列，保证串行）
  */
 async function checkIrisDevice(endpoint: string): Promise<{ online: boolean; count: number | null }> {
-  return new Promise((resolve) => {
-    const url = new URL(endpoint + '/members');
-    const postData = JSON.stringify({ count: 100, key: '', lastStaffNumDec: '', needImages: 0 });
-
-    const req = http.request({
-      hostname: url.hostname,
-      port: url.port || 80,
-      path: url.pathname,
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(postData) },
-      agent: false,
-      timeout: 5000,
-    }, (res) => {
-      let data = '';
-      res.on('data', chunk => data += chunk);
-      res.on('end', () => {
-        try {
-          const json = JSON.parse(data);
-          if (json.errorCode === 0 || json.errorCode === '0') {
-            const count = json.body?.length ?? null;
-            resolve({ online: true, count });
-          } else {
-            resolve({ online: false, count: null });
-          }
-        } catch {
-          resolve({ online: false, count: null });
-        }
-      });
-    });
-
-    req.on('error', () => { resolve({ online: false, count: null }); });
-    req.on('timeout', () => { req.destroy(); resolve({ online: false, count: null }); });
-
-    req.write(postData);
-    req.end();
-  });
+  try {
+    const json = await irisRequest(endpoint, '/members', { count: 100, key: '', lastStaffNumDec: '', needImages: 0 }, 5000);
+    if (json.errorCode === 0 || json.errorCode === '0') {
+      const count = json.body?.length ?? null;
+      return { online: true, count };
+    }
+    return { online: false, count: null };
+  } catch {
+    return { online: false, count: null };
+  }
 }
 
 /**
- * 发送虹膜设备锁定/解锁指令（http.request，独立 TCP 连接）
+ * 发送虹膜设备锁定/解锁指令（通过统一队列）
  */
-function sendIrisLockCommand(
+async function sendIrisLockCommand(
   endpoint: string,
   state: 0 | 1  // 0=解锁, 1=锁定
 ): Promise<any> {
-  return new Promise((resolve, reject) => {
-    const url = new URL(endpoint + '/memberSaveState');
-    const deviceIp = url.hostname;
-    const postData = JSON.stringify({ ip: deviceIp, state });
-
-    const req = http.request({
-      hostname: url.hostname,
-      port: url.port || 80,
-      path: url.pathname,
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(postData) },
-      agent: false,
-      timeout: 10000,
-    }, (res) => {
-      let data = '';
-      res.on('data', chunk => data += chunk);
-      res.on('end', () => {
-        try {
-          resolve(JSON.parse(data));
-        } catch {
-          resolve({ errorCode: -1, errorInfo: '解析失败: ' + data });
-        }
-      });
-    });
-
-    req.on('error', reject);
-    req.on('timeout', () => { req.destroy(); reject(new Error('锁定请求超时')); });
-
-    req.write(postData);
-    req.end();
-  });
+  const url = new URL(endpoint + '/memberSaveState');
+  const deviceIp = url.hostname;
+  try {
+    return await irisRequest(endpoint, '/memberSaveState', { ip: deviceIp, state }, 10000);
+  } catch {
+    return { errorCode: -1, errorInfo: '锁定请求异常' };
+  }
 }
 
 /**
